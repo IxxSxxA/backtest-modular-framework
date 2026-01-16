@@ -1,0 +1,121 @@
+# === CORE SETTINGS ===
+engine:
+  tf: "1m"                    # TF fisso del motore
+  initial_capital: 10000      # Capitale iniziale
+  commission: 0.001           # Commissioni 0.1%
+
+# === DATA SOURCE ===
+data:
+  symbol: "BTCUSDT"
+  source: "data/raw/BTCUSDT_1m.parquet"
+  
+  # Eventuale filtro temporale
+  filter:
+    start: "2025-10-01"
+    end: "2025-10-30"
+
+# === STRATEGY COMPONENTS ===
+strategy:
+  # ENTRY: Quando aprire una posizione
+  entry:
+    name: "ema_cross_cvd"
+    # Parametri specifici della strategia
+    params:
+      fast_period: 20
+      slow_period: 50
+      cvd_tf: "4h"
+  
+  # EXIT: Quando chiudere una posizione  
+  exit:
+    name: "fixed_tp_sl"
+    params:
+      tp_percent: 0.05      # Take Profit +5%
+      sl_percent: 0.02      # Stop Loss -2%
+      # trailing_percent: 0.03  # Per trailing stop
+      # max_bars: 50           # Per exit temporale
+  
+  # RISK: Quanto rischiare per trade (opzionale)
+  risk:
+    name: "fixed_percent"
+    params:
+      risk_per_trade: 0.02  # Rischia 2% per trade
+
+# === INDICATORS REQUIRED ===
+indicators:
+  # Ogni entry ha: nome + parametri + timeframe
+  - name: "ema"
+    params: {period: 20}
+    tf: "5m"
+    column: "ema_fast_5m"
+  
+  - name: "sma"
+    params: {period: 50}
+    tf: "5m"
+    column: "ma_slow_5m"
+  
+  - name: "cvd"
+    params: {reset_tf: "4h"}
+    tf: "1m"  # CVD calcolato su 1m ma resetta ogni 4h
+    column: "cvd_4h"
+  
+  - name: "atr"
+    params: {period: 14}
+    tf: "1m"
+    column: "atr_14"
+
+# === JOURNALING ===
+journal:
+  # Cosa registrare nel journal
+  save_to: "data/journals/"
+  filename: "{strategy_name}_{timestamp}.parquet"
+  
+  fields:
+    - timestamp
+    - price_open
+    - price_close
+    - entry_signal
+    - exit_signal
+    - exit_reason
+    - in_position
+    - position_size
+    - capital
+    - drawdown
+    # Aggiungi indicatori se vuoi
+    # - ema_fast_5m
+    # - ma_slow_5m
+
+# === REPORTING & VISUALIZATION ===
+report:
+  # Report testuale
+  metrics:
+    - total_return
+    - sharpe_ratio
+    - max_drawdown
+    - win_rate
+    - profit_factor
+  
+  # Plot
+  plots:
+    - type: "equity_curve"
+      tf: "1h"           # Aggrega a 1h per il plot
+      save_to: "plots/equity.png"
+    
+    - type: "drawdown"
+      save_to: "plots/drawdown.png"
+    
+    - type: "trades_on_chart"
+      tf: "15m"          # Candele da plottare
+      indicators_to_plot: ["ema_fast_5m", "ma_slow_5m"]
+      save_to: "plots/trades.png"
+    
+    - type: "monthly_returns"
+      save_to: "plots/monthly_returns.png"
+
+# === OPTIMIZATION (FUTURO) ===
+optimization:
+  enabled: false
+  param_space:
+    entry.fast_period: [10, 20, 30]
+    exit.tp_percent: [0.03, 0.05, 0.08]
+    exit.sl_percent: [0.01, 0.02, 0.03]
+  method: "grid_search"

@@ -1,0 +1,62 @@
+# config.yaml
+
+# === CORE SETTINGS ===
+engine:
+  tf: "1m"
+  initial_capital: 10000
+  commission: 0.001
+  lookback_window: 100
+
+# === DATA SOURCE ===
+data:
+  symbols: ["BTCUSDT"]        # List of symbols to backtest
+  timeframe: "1m"                 # Data timeframe
+  source_dir: "data/raw"      # Directory with parquet files
+  
+  # Optional date filtering
+  filter:
+    start: "2025-10-01"
+    end: "2025-10-30"
+
+# === STRATEGY COMPONENTS ===
+strategy:
+  entry:
+    name: "price_above_sma"
+    params:
+      period: 20              # Must match indicator SMA period!
+      lookback: 1
+ 
+  exit:
+    name: "hold_bars"
+    params:
+      bars: 10                # Hold for 10 bars
+  
+  # RISK: How much to risk per trade (optional)
+  risk:
+    name: "fixed_percent"    # Risk management strategy
+    params:
+      risk_per_trade: 0.02   # Risk 2% per trade
+
+# === INDICATORS REQUIRED ===
+indicators:
+  # Each entry: name + parameters + timeframe
+  - name: "sma"
+    params: {period: 20}      # MUST match strategy.entry.params.period!
+    tf: "1m"
+    column: "sma_20"          # Column name the strategy will look for
+
+# === JOURNALING ===
+journal:
+  save_dir: "data/journals/"
+  filename_template: "{symbol}_{entry_strategy}_{timestamp}.parquet"
+  
+  # Basic fields for Phase 1
+  fields:
+    - timestamp
+    - symbol
+    - price_close
+    - entry_signal
+    - exit_signal
+    - in_position
+    - position_size
+    - capital

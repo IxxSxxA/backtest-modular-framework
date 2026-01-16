@@ -1,0 +1,25 @@
+# === CORE DATA MANIPULATION ===
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=14.0.0  # For Parquet I/O
+
+# === CONFIGURATION ===
+pyyaml>=6.0
+
+# === TECHNICAL INDICATORS ===
+# TA-Lib (installa prima via sistema, poi Python bindings)
+# Per Ubuntu/Debian: sudo apt-get install libta-lib-dev
+# Per macOS: brew install ta-lib
+ta-lib>=0.4.28
+
+# === UTILITIES ===
+python-dotenv>=1.0.0  # For environment variables (future use)
+
+# === DEVELOPMENT/OPTIONAL ===
+ipython>=8.0.0  # For interactive debugging
+matplotlib>=3.7.0  # For plotting (Phase 2)
+jupyter>=1.0.0  # For notebooks (optional)
+
+# === TESTING ===
+pytest>=7.0.0
+pytest-cov>=4.0.0
