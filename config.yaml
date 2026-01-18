@@ -23,7 +23,7 @@ strategy:
   entry:
     name: "price_above_sma"
     params:
-      period: 20              # Must match indicator SMA period!
+      period: 100              # Must match indicator SMA period!
       lookback: 1
  
   exit:
@@ -42,9 +42,9 @@ strategy:
 indicators:
   # Each entry: name + parameters + timeframe
   - name: "sma"
-    params: {period: 20}      # MUST match strategy.entry.params.period!
+    params: {period: 100}      # MUST match strategy.entry.params.period!
     tf: "1m"
-    column: "sma_20"          # Column name the strategy will look for
+    column: "sma_100"          # Column name the strategy will look for
 
 # === JOURNALING ===
 journal:
@@ -61,3 +61,32 @@ journal:
     - in_position
     - position_size
     - capital
+
+
+
+# === PLOTTING CONFIGURATION ===
+plotting:
+  indicators_to_plot:
+    - name: "sma"
+      column: "sma_100"
+      color: "#ff0000"
+      linewidth: 3
+      alpha: 1
+      label: "SMA 100"
+    
+    # - name: "ema"
+    #   column: "ema_50" 
+    #   color: "#3366ff"
+    #   linewidth: 1.5
+    #   alpha: 0.7
+    #   label: "EMA 50"
+  
+  # Opzioni di layout
+  layout:
+    price_height_ratio: 3
+    indicators_height_ratio: 2
+    position_height_ratio: 1
+  
+  style:
+    background_color: "#f5f5f5"
+    grid_alpha: 0.2

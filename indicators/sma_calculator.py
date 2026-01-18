@@ -12,7 +12,7 @@ class SMACalculator(BaseCalculator):
     Simple Moving Average calculator.
     
     Parameters:
-        period: Number of periods for the moving average (default: 20)
+        period: Number of periods for the moving average
     """
     
     def calculate(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.Series:
@@ -27,7 +27,7 @@ class SMACalculator(BaseCalculator):
             Series with SMA values
         """
         # Get parameters
-        period = params.get('period', 20)
+        period = params.get('period')
         price_column = params.get('column', 'close')
         
         if period <= 0:

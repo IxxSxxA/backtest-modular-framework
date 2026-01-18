@@ -124,6 +124,35 @@ class BaseCalculator(ABC):
             cache_file.unlink(missing_ok=True)
             return False
     
+            # Don't raise - caching is optional
+
+
+    
+    def save_to_cache(self, values: pd.Series, params: Dict[str, Any]):
+        """
+        Save indicator values to cache.
+        
+        Args:
+            values: Series with calculated values (name will be preserved in metadata)
+            params: Indicator parameters used
+        """
+        cache_file = self.get_cache_filepath(params)
+        
+        try:
+            # ✅ FIX: Usa sempre 'value' come colonna standard nella cache
+            # (il nome della Series sarà gestito da indicator_manager)
+            df = pd.DataFrame({'value': values})
+            
+            # Optional: Salva anche il nome originale come metadato
+            # (non necessario se indicator_manager gestisce il rename)
+            
+            df.to_parquet(cache_file)
+            logger.debug(f"Saved to cache: {cache_file.name}")
+            
+        except Exception as e:
+            logger.error(f"Error saving cache {cache_file}: {e}")
+
+
     def load_from_cache(self, params: Dict[str, Any]) -> pd.Series:
         """
         Load indicator values from cache.
@@ -132,7 +161,7 @@ class BaseCalculator(ABC):
             params: Indicator parameters
             
         Returns:
-            Series with cached values
+            Series with cached values (name will be set by indicator_manager)
         """
         cache_file = self.get_cache_filepath(params)
         
@@ -142,13 +171,15 @@ class BaseCalculator(ABC):
         try:
             df = pd.read_parquet(cache_file)
             
-            # Ensure we have the expected columns
+            # ✅ FIX: Carica 'value' e ritorna Series senza nome
+            # (indicator_manager setterà il nome corretto dopo)
             if 'value' not in df.columns:
                 raise ValueError(f"Cache file missing 'value' column: {cache_file}")
             
-            # Return as Series with original index
             series = df['value']
             series.index = pd.to_datetime(df.index) if not isinstance(df.index, pd.DatetimeIndex) else df.index
+            
+            # ✅ NON settare series.name qui, lascia che indicator_manager lo faccia
             
             logger.debug(f"Loaded from cache: {cache_file.name}")
             return series
@@ -156,29 +187,8 @@ class BaseCalculator(ABC):
         except Exception as e:
             logger.error(f"Error loading cache {cache_file}: {e}")
             raise
-    
-    def save_to_cache(self, values: pd.Series, params: Dict[str, Any]):
-        """
-        Save indicator values to cache.
-        
-        Args:
-            values: Series with calculated values
-            params: Indicator parameters used
-        """
-        cache_file = self.get_cache_filepath(params)
-        
-        try:
-            # Convert to DataFrame for parquet serialization
-            df = pd.DataFrame({'value': values})
-            
-            # Save to parquet
-            df.to_parquet(cache_file)
-            logger.debug(f"Saved to cache: {cache_file.name}")
-            
-        except Exception as e:
-            logger.error(f"Error saving cache {cache_file}: {e}")
-            # Don't raise - caching is optional
-    
+
+
     def calculate_with_cache(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.Series:
         """
         Calculate indicator with caching support.

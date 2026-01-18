@@ -1,6 +1,3 @@
-Perfetto! Ho analizzato il file `engine.py` ed estratto tutti i calcoli relativi alla gestione dei trade. Li ho organizzati in categorie e aggiunti al tuo file `readme_calcs_reference.md`. Ecco il file aggiornato:
-
-```markdown
 # 📄 Calculation_Reference.md
 
 ## POSITION SIZING
@@ -330,7 +327,7 @@ results = {
 ---
 
 *Document updated with calculations extracted from `engine.py`*
-```
+
 
 Ho organizzato i calcoli in queste categorie principali:
 1. **Position Sizing** - Come viene calcolata la dimensione della posizione
@@ -343,4 +340,4 @@ Ho organizzato i calcoli in queste categorie principali:
 8. **Validation Checks** - Controlli di validazione
 9. **Performance Summary** - Metrica riassuntive
 
-Tutti i calcoli sono presi direttamente dal codice `engine.py` e rappresentano esattamente come funziona il tuo framework. Vuoi che proceda con altri file?
+Tutti i calcoli sono presi direttamente dal codice `engine.py` e rappresentano esattamente come funziona il tuo framework.

@@ -90,7 +90,7 @@ class JournalWriter:
         if PLOTTING_AVAILABLE:
             try:
                 plotter = BacktestPlotter()
-                plot_paths = plotter.create_all_plots(results, run_dir)
+                plot_paths = plotter.create_all_plots(results, run_dir, config)
                 file_paths.update(plot_paths)
                 logger.info(f"Created {len(plot_paths)} plots")
             except Exception as e:

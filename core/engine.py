@@ -154,7 +154,7 @@ class BacktestEngine:
             # FixedTPSL exit strategy
             stop_loss_price = entry_price * (1 - self.exit_strategy.sl_percent)
         
-        # ✅ MODIFICA 1: Rename to risk_amount for clarity
+        # ✅ Rename to risk_amount for clarity
         risk_amount = self.risk_manager.calculate_position_size(
             capital=self.capital,
             entry_price=entry_price,
@@ -163,7 +163,7 @@ class BacktestEngine:
             volatility=None  # Will add ATR later
         )
         
-        # ✅ MODIFICA 2: Convert risk amount to quantity
+        # ✅  Convert risk amount to quantity
         quantity = risk_amount / entry_price  # 200$ / 100000$ = 0.002 BTC
         position_value = risk_amount  # position_value = 200$ (già calcolato dal risk manager)
         
@@ -172,7 +172,7 @@ class BacktestEngine:
             logger.warning(f"Insufficient capital: needed ${position_value:.2f}, have ${self.capital:.2f}")
             return
         
-        if quantity <= 0:  # ✅ MODIFICA 3: Check quantity, not risk_amount
+        if quantity <= 0:  # ✅  Check quantity, not risk_amount
             logger.warning(f"Invalid position quantity: {quantity}")
             return
         
@@ -182,7 +182,7 @@ class BacktestEngine:
         # Store TOTAL EQUITY before entry (for P&L calculations)
         total_equity_before = self.capital  # At this point, all capital is available
         
-        # Store position (✅ MODIFICA 4: Store quantity, not risk_amount)
+        # Store position ✅  Store quantity, not risk_amount
         self.position = {
             'entry_index': index,
             'entry_price': entry_price,
@@ -205,7 +205,7 @@ class BacktestEngine:
         logger.info(
             f"📈 ENTRY at {entry_time} | "
             f"Price: ${entry_price:.2f} | "
-            f"Quantity: {quantity:.6f} | "  # ✅ MODIFICA 5: Log quantity
+            f"Quantity: {quantity:.6f} | "  # ✅  Log quantity
             f"Position Value: ${position_value:.2f} | "
             f"Available Balance: ${self.capital:.2f} | "
             f"Total Equity: ${total_equity_after:.2f} | "
@@ -213,7 +213,7 @@ class BacktestEngine:
             f"Equity Change: ${total_equity_after - total_equity_before:+.2f}"
         )
         
-        # Record trade entry (✅ MODIFICA 6: Store quantity)
+        # Record trade entry (✅  Store quantity)
         trade = {
             'entry_index': index,
             'entry_time': entry_time,

@@ -152,7 +152,7 @@ def prepare_data(config: dict) -> pd.DataFrame:
 def main():
     """Main backtest execution."""
     print("\n" + "="*60)
-    print("TRADING FRAMEWORK - Backtest Engine (Phase 2 - Risk Management)")
+    print("TRADING FRAMEWORK - Backtest Engine")
     print("="*60)
     
     try:
