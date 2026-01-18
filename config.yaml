@@ -33,9 +33,10 @@ strategy:
   
   # RISK: How much to risk per trade (optional)
   risk:
-    name: "fixed_percent"    # Risk management strategy
+    name: "fixed_percent"    # Nome della classe risk manager
     params:
-      risk_per_trade: 0.02   # Risk 2% per trade
+      risk_per_trade: 0.02   # Rischia 2% dell'equity corrente
+      max_drawdown: 0.15     # Opzionale: blocca trading se drawdown > 15%
 
 # === INDICATORS REQUIRED ===
 indicators:
@@ -50,7 +51,7 @@ journal:
   save_dir: "data/journals/"
   filename_template: "{symbol}_{entry_strategy}_{timestamp}.parquet"
   
-  # Basic fields for Phase 1
+  # Basic fields // Add if needed
   fields:
     - timestamp
     - symbol

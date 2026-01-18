@@ -57,15 +57,13 @@ Un sistema di backtesting **semplice, modulare e veloce** che permetta di:
 **Obiettivo raggiunto:** Framework stabile con risk management e visualizzazione! 📊
 
 ### **📋 FASE 3: DEBUG & STABILIZATION** (PROSSIMA)
-- [ ] **Debug calcoli risk management** - verifica consistenza position sizing
-- [ ] **Verifica precisione calcoli** - P&L, commissioni, equity
-- [ ] **Controlli di consistenza** automatici nei risultati
-- [ ] **Logging dettagliato** per debugging calcoli
-- [ ] **Test suite base** per verificare componenti critici
-- [ ] **Documentazione calcoli** - spiegazione formule usate
+- ✅ **Fix output directory** -> Must be taken from config
+- ✅ **Debug calcoli risk management** - verifica consistenza position sizing
+- ✅ **Verifica precisione calcoli** - P&L, commissioni, equity
+- ✅ **Controlli di consistenza** automatici nei risultati
+- ✅ **Logging dettagliato** per debugging calcoli
+- ✅ **Documentazione calcoli** - spiegazione formule usate -> In english! -> Suggest a name for the document
 
-**🔍 NOTA CRITICA:** Durante i test sono state identificate possibili incongruenze nei calcoli di position sizing.
-La FASE 3 focalizzerà sulla verifica e correzione di questi aspetti critici prima di aggiungere nuove feature.
 
 ### **📋 FASE 4: ENHANCED FEATURES** 
 - [ ] Multi indicatori (EMA, RSI, ATR)
@@ -74,6 +72,7 @@ La FASE 3 focalizzerà sulla verifica e correzione di questi aspetti critici pri
 - [ ] Multi-timeframe indicators
 - [ ] Advanced risk metrics (Sharpe, Sortino, Calmar)
 - [ ] Walk-forward testing
+- [ ] Monte Carlo simulations
 - [ ] Parameter optimization (grid search)
 
 ### **📋 FASE 5: PRODUCTION READY**
@@ -82,13 +81,12 @@ La FASE 3 focalizzerà sulla verifica e correzione di questi aspetti critici pri
 - [ ] Logging strutturato
 - [ ] Report HTML completo
 - [ ] Script utilità (download data, cleanup)
-- [ ] UI web (Streamlit)
+- [ ] BASIC UI web (Streamlit)
 
 ### **📋 FASE 6: ADVANCED ECOSYSTEM**
 - [ ] Plugin system per indicatori/strategie
 - [ ] Cloud storage per dati/journal
 - [ ] API REST per automazione
-- [ ] Monte Carlo simulations
 - [ ] Live trading bridge (futuro)
 - [ ] Documentation completa
 
@@ -139,119 +137,11 @@ trading_framework/
 ├── reports/ # Visualizzazioni
 │   ├── plotter.py
 │   └── __init__.py
-├── data/ # Dati e cache (NON versionare)
-└── results/ # Output backtest
+├── data/ # Dati e cache (NON versionare) // No hardcode -> Preso da config.yaml
+└── results/ # Output backtest // No hardcode -> Preso da config.yaml
 ```
 
-## 🚀 COMINCIARE
 
-### Prerequisiti:
-
-```bash
-Python 3.9+
-pip install -r requirements.txt
-
-# Per TA-Lib:
-# Ubuntu/Debian: sudo apt-get install libta-lib-dev
-# macOS: brew install ta-lib
-# Poi: pip install TA-Lib
-
-# Per visualizzazioni (FASE 2+):
-pip install matplotlib
-```
-
-### Passo 1 - Setup dati:
-```bash
-# Metti i tuoi dati 1m in data/raw/BTCUSDT-1m-*.parquet
-```
-
-### Passo 2 - Configura `config.yaml`:
-```yaml
-data:
-  symbols: ["BTCUSDT"]
-  timeframe: "1m"
-  
-strategy:
-  entry:
-    name: "price_above_sma"
-    params: {period: 20, lookback: 1}
-  exit:
-    name: "hold_bars"
-    params: {bars: 10}
-  risk:  # Nuovo in FASE 2
-    name: "fixed_percent"
-    params: {risk_per_trade: 0.02}
-
-indicators:
-  - name: "sma"
-    params: {period: 20}
-    tf: "1m"
-    column: "sma_20"
-```
-
-### Passo 3 - Esegui backtest:
-```bash
-python backtest.py
-```
-
-### Passo 4 - Analizza risultati:
-- Console: Summary dettagliato
-- `results/`: Files Parquet + PNG con grafici
-- `data/indicators/`: Cache indicatori (riutilizzabile - formato parquet)
-
-## 🎯 ESEMPIO DI OUTPUT FASE 2
-
-```txt
-================================================================================
-BACKTEST SUMMARY - Detailed Performance Report
-================================================================================
-
-📈 CORE PERFORMANCE METRICS:
-------------------------------------------------------------
-Initial Capital:          $10,000.00
-Final Equity:             $5,278.06
-Total Return:             -47.22%
-
-Gross P&L (pre-costs):    $+40.91
-Total Costs:              $4,763.91
-Net P&L (after costs):    $-4723.00
-
-📊 RISK & DRAWDOWN METRICS:
-------------------------------------------------------------
-Maximum Drawdown:         47.22%
-Drawdown Level:          ⚠️  Extreme (>30%)
-
-🎯 TRADE STATISTICS:
-------------------------------------------------------------
-Total Trades:             1613
-Winning Trades:           144 (8.9%)
-Losing Trades:            1469 (91.1%)
-Profit Factor:            1.03
-Average P&L/Trade:        $-2.93
-
-⚖️  RISK MANAGEMENT:
-------------------------------------------------------------
-Risk Manager:             FixedPercentRisk (2.0% risk per trade)
-Avg Commission per Trade: $2.95
-
-💡 EXECUTIVE SUMMARY:
-------------------------------------------------------------
-😔 STRATEGY UNPROFITABLE
-⚠️  EXTREME RISK: Drawdown >30%
-⚡ HIGH FREQUENCY: >10 trades/day
-
-🎯 RECOMMENDATIONS:
-------------------------------------------------------------
-❌ REJECT: Unprofitable with extreme drawdown
-```
-
-## 📈 VISUALIZZAZIONI DISPONIBILI (FASE 2)
-
-Il framework ora genera automaticamente 3 grafici PNG:
-
-1. **`equity_curve.png`** - Equity curve con drawdown
-2. **`trade_distribution.png`** - Distribuzione P&L, trade cumulativo, exit reasons
-3. **`price_signals.png`** - Prezzi con entry/exit markers e position status
 
 ## 🐛 NOTE SU CALCOLI (DA VERIFICARE IN FASE 3)
 
@@ -274,7 +164,7 @@ Durante i test sono state osservate potenziali incongruenze nei calcoli:
 
 ## 🎯 DECISIONI ARCHITETTURALI:
 
-- **Parquet over CSV/DB**: performance, compression, schema evolution
+- **Parquet (and CSV/DB if required)**: performance, compression, schema evolution
 - **YAML over JSON/INI**: human readable, commenti, gerarchia
 - **Classi over functions**: per strategie, ma interfacce semplici
 - **Cache on disk**: tra esecuzioni, non solo in memoria
@@ -316,15 +206,3 @@ La FASE 2 è stata completata con successo! Abbiamo aggiunto:
 *Stato: PRONTO PER FASE 3 - DEBUG & STABILIZATION*
 [file content end]
 
-
-## ✅ **AGGIORNAMENTO COMPLETATO!**
-
-Ora il `readme.md` riflette accuratamente:
-
-1. **✅ FASE 2 COMPLETATA** con tutti gli elementi realizzati
-2. **📋 FASE 3 DEFINITA** come "Debug & Stabilization"
-3. **🔍 NOTA CRITICA** evidenziata per le incongruenze nei calcoli
-4. **📋 FASE 4** dove spostiamo indicatori multipli e strategie multiple
-5. **Struttura aggiornata** con tutte le nuove componenti (risk/, reports/)
-
-**Pronti per iniziare la FASE 3 quando vuoi!** 🛠️

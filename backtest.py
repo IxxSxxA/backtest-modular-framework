@@ -25,7 +25,7 @@ from core.journal_writer import JournalWriter
 from strategies.entry.price_above_sma import PriceAboveSMA
 from strategies.exit.hold_bars import HoldBars
 from strategies.exit.fixed_tp_sl import FixedTPSL
-from strategies.risk.fixed_percent import FixedPercentRisk
+from strategies.risk.fixed_percent import FixedPercent
 
 
 def setup_logging(level=logging.INFO):
@@ -103,11 +103,7 @@ def create_exit_strategy(config: dict):
 
 def create_risk_manager(config: dict):
     """Create risk manager instance from config."""
-    # Check if risk management is configured
-    if 'risk' not in config['strategy']:
-        logger = logging.getLogger(__name__)
-        logger.info("No risk manager configured. Using default FixedPercentRisk with 2% risk.")
-        return FixedPercentRisk({'risk_per_trade': 0.02})
+
     
     risk_config = config['strategy']['risk']
     strategy_name = risk_config['name']
@@ -115,7 +111,7 @@ def create_risk_manager(config: dict):
     
     # Risk manager mapping
     risk_map = {
-        'fixed_percent': FixedPercentRisk,
+        'fixed_percent': FixedPercent,
     }
     
     if strategy_name not in risk_map:
@@ -209,9 +205,9 @@ def main():
         # Print summary to console
         engine.print_summary(results)
         
-        # Save results using JournalWriter
+        # Save results using JournalWriter - FIXED: pass config parameter
         logger.info("Saving results...")
-        journal_writer = JournalWriter()
+        journal_writer = JournalWriter(config)  # <-- QUI È IL FIX!
         saved_files = journal_writer.save_backtest_results(results, config)
         
         print(f"\n💾 Results saved to: {list(saved_files.keys())}")

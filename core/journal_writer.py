@@ -25,17 +25,22 @@ class JournalWriter:
     Phase 2: Parquet format for better performance and compression.
     """
     
-    def __init__(self, output_dir: str = "results"):
-        """
-        Initialize journal writer.
-        
-        Args:
-            output_dir: Directory to save results
-        """
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        
-        logger.info(f"JournalWriter initialized. Output directory: {self.output_dir}")
+    def __init__(self, config: Dict[str, Any]):
+            """
+            Initialize journal writer.
+            
+            Args:
+                config: Configuration dictionary
+            """
+            # Prendi directory da config o usa default
+            if 'journal' in config and 'save_dir' in config['journal']:
+                self.output_dir = Path(config['journal']['save_dir'])
+            else:
+                self.output_dir = Path("results")  # Fallback
+            
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            
+            logger.info(f"JournalWriter initialized. Output directory: {self.output_dir}")
     
     def save_backtest_results(
         self,
@@ -487,13 +492,7 @@ class JournalWriter:
     def _save_summary_text(self, results: Dict[str, Any], run_dir: Path) -> Path:
         """
         Save human-readable summary to text file with detailed metrics.
-        
-        Args:
-            results: Results dictionary
-            run_dir: Run directory
-            
-        Returns:
-            Path to saved file
+        FIXED: Uses correct keys from engine results
         """
         file_path = run_dir / 'summary.txt'
         
@@ -506,20 +505,43 @@ class JournalWriter:
                 f.write(f"{results['message']}\n\n")
                 return file_path
             
-            # === CORE PERFORMANCE METRICS ===
-            f.write("📈 CORE PERFORMANCE METRICS:\n")
+            # === DATA VALIDATION SECTION ===
+            f.write("🧪 DATA VALIDATION FROM ENGINE:\n")
             f.write("-" * 60 + "\n")
             
+            # Get correct keys from engine results
             initial_capital = results.get('initial_capital', 0)
-            final_equity = results.get('final_equity', 0)
+            final_total_equity = results.get('final_total_equity', 0)
+            final_available_balance = results.get('final_available_balance', 0)
             total_return_pct = results.get('total_return_percent', 0)
             total_net_pnl = results.get('total_net_pnl', 0)
             total_gross_pnl = results.get('total_gross_pnl', 0)
             total_commission = results.get('total_commission', 0)
             
-            # Detailed P&L breakdown
+            # Verify data integrity
+            f.write(f"initial_capital:           ${initial_capital:,.2f}\n")
+            f.write(f"final_total_equity:        ${final_total_equity:,.2f}\n")
+            f.write(f"final_available_balance:   ${final_available_balance:,.2f}\n")
+            f.write(f"total_return_percent:      {total_return_pct:+.2f}%\n")
+            f.write(f"total_net_pnl:             ${total_net_pnl:+.2f}\n")
+            f.write(f"total_gross_pnl:           ${total_gross_pnl:+.2f}\n")
+            f.write(f"total_commission:          ${total_commission:,.2f}\n")
+            
+            # Check for data inconsistencies
+            if final_total_equity <= 0:
+                f.write(f"⚠️  WARNING: Total equity at or below zero!\n")
+            if abs(final_total_equity - final_available_balance) > 0.01:
+                f.write(f"⚠️  NOTE: Position may still be open (equity ≠ balance)\n")
+            
+            f.write("\n")
+            
+            # === CORE PERFORMANCE METRICS ===
+            f.write("📈 CORE PERFORMANCE METRICS:\n")
+            f.write("-" * 60 + "\n")
+            
             f.write(f"Initial Capital:          ${initial_capital:,.2f}\n")
-            f.write(f"Final Equity:             ${final_equity:,.2f}\n")
+            f.write(f"Final Total Equity:       ${final_total_equity:,.2f}\n")
+            f.write(f"Final Available Balance:  ${final_available_balance:,.2f}\n")
             f.write(f"Total Return:             {total_return_pct:+.2f}%\n")
             f.write("\n")
             f.write(f"Gross P&L (pre-costs):    ${total_gross_pnl:+.2f}\n")
@@ -622,12 +644,11 @@ class JournalWriter:
                     # Calculate average risk per trade
                     risk_amounts = []
                     for trade in trades:
-                        if 'capital_before' in trade:
-                            # Estimate risk as position value / capital before
+                        if 'total_equity_before' in trade:
                             position_value = trade.get('position_value', 0)
-                            capital_before = trade.get('capital_before', initial_capital)
-                            if capital_before > 0:
-                                risk_pct = (position_value / capital_before) * 100
+                            equity_before = trade.get('total_equity_before', initial_capital)
+                            if equity_before > 0:
+                                risk_pct = (position_value / equity_before) * 100
                                 risk_amounts.append(risk_pct)
                     
                     if risk_amounts:
@@ -690,8 +711,8 @@ class JournalWriter:
             f.write("🧮 VERIFICATION CALCULATIONS:\n")
             f.write("-" * 60 + "\n")
             
-            # Check consistency
-            calculated_return = ((final_equity / initial_capital) - 1) * 100
+            # Check consistency - using FINAL_TOTAL_EQUITY now
+            calculated_return = ((final_total_equity / initial_capital) - 1) * 100
             f.write(f"Calculated Return:       {calculated_return:+.2f}% ")
             if abs(calculated_return - total_return_pct) < 0.01:
                 f.write("✓ (Matches reported return)\n")
@@ -699,7 +720,7 @@ class JournalWriter:
                 f.write(f"⚠️  (Diff: {calculated_return - total_return_pct:.2f}%)\n")
             
             # Check P&L consistency
-            calculated_net_pnl = final_equity - initial_capital
+            calculated_net_pnl = final_total_equity - initial_capital
             f.write(f"Calculated Net P&L:      ${calculated_net_pnl:+.2f} ")
             if abs(calculated_net_pnl - total_net_pnl) < 0.01:
                 f.write("✓ (Matches reported P&L)\n")
