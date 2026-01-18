@@ -45,7 +45,7 @@ trading_framework/
 │ │ ├── rsi_oversold.py # Esempio: RSI < 30
 │ │ └── bollinger_squeeze.py # Esempio: Bande di Bollinger
 │ │
-│ ├── 📁 exit/ # Strategie di EXIT (True/False + motivo)
+│ ├── 📁 exit/ # Strategie di EXIT -> SONO TUTTE TP/SL (True/False + motivo)
 │ │ ├── init.py
 │ │ ├── base_exit.py # Classe base astratta
 │ │ ├── fixed_tp_sl.py # Take Profit / Stop Loss fissi
@@ -53,7 +53,7 @@ trading_framework/
 │ │ ├── time_based.py # Exit dopo N candele
 │ │ └── atr_stop.py # Stop basato su ATR
 │ │
-│ └── 📁 risk/ # Gestione rischio (opzionale, futuro)
+│ └── 📁 risk/ # Gestione rischio - Quanto capitale
 │ ├── init.py
 │ ├── base_risk.py
 │ ├── fixed_percent.py # Rischia X% per trade

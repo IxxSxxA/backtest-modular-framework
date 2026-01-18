@@ -15,7 +15,7 @@ data:
   
   # Optional date filtering
   filter:
-    start: "2025-10-01"
+    start: "2025-10-29"
     end: "2025-10-30"
 
 # === STRATEGY COMPONENTS ===
