@@ -49,7 +49,7 @@ class PriceAboveSMA(BaseEntryStrategy):
             
             # Simple condition: price above SMA
             if current_close > current_sma and prev_close < prev_sma:  # ← Crossover!
-                logger.debug(f"Entry signal: {current_close:.2f} > {current_sma:.2f}")
+                logger.info(f"Entry signal: Current price {current_close:.2f} > {current_sma:.2f} || Prev price {prev_close:.2f} < {prev_sma:.2f}")
                 return True
             
             return False                        

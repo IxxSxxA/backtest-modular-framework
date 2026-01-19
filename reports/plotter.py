@@ -259,31 +259,31 @@ class BacktestPlotter:
         logger.info(f"Trade distribution plot saved to: {save_path}")
         return save_path
     
-    def plot_price_with_signals(self, 
-                           journal: List[Dict[str, Any]], 
+    def plot_price_with_signals(self, journal: List[Dict[str, Any]], 
                            trades: List[Dict[str, Any]],
                            config: Dict[str, Any],
                            save_path: Optional[Path] = None) -> Path:
-        """
-        Plot price chart with entry/exit signals AND indicators OVERLAID.
-        """
         if not journal:
             logger.warning("No journal data for price signals plot")
             return None
         
-        # Convert to DataFrames
         journal_df = pd.DataFrame(journal)
         
         if 'price' not in journal_df.columns:
             logger.warning("No price data in journal")
             return None
         
-        # Get plotting configuration
         plotting_config = config.get('plotting', {})
         indicators_to_plot = plotting_config.get('indicators_to_plot', [])
-
-        # DEBUG
-        indicator_data = self._load_indicator_data(journal_df, config)
+        
+        # ✅ Determina run_dir dal save_path           
+        if save_path:
+            run_dir = Path(save_path).parent
+        else:
+            run_dir = self.output_dir
+        
+        # ✅ PASSA run_dir a _load_indicator_data
+        indicator_data = self._load_indicator_data(journal_df, config, run_dir)
         
         if not indicator_data:
             logger.error("NO INDICATOR DATA LOADED!")
@@ -311,7 +311,8 @@ class BacktestPlotter:
         # Asse 0: Price chart with indicators OVERLAID
         ax_price = axes[0]
         self._plot_price_chart_with_indicators(ax_price, journal_df, trades, 
-                                            config, indicators_to_plot)
+                                            config, indicators_to_plot,
+                                            run_dir)
         
         # Asse 1: Position chart
         ax_position = axes[1]
@@ -334,7 +335,8 @@ class BacktestPlotter:
         return save_path
 
     def _plot_price_chart_with_indicators(self, ax, journal_df, trades, 
-                                     config, indicators_to_plot):
+                                     config, indicators_to_plot, 
+                                     run_dir: Path = None):  # ← AGGIUNGI run_dir
         """
         Plot price chart with entry/exit signals AND indicators on same axis.
         """
@@ -344,16 +346,13 @@ class BacktestPlotter:
         else:
             x_axis = journal_df.index
         
-        # DEBUG: mostra range dei dati
-        logger.info(f"Price range: {journal_df['price'].min():.2f} - {journal_df['price'].max():.2f}")
-        
         # Plot price
         price_line, = ax.plot(x_axis, journal_df['price'], label='Price', 
                             color='black', linewidth=1.5, alpha=0.8, zorder=5)
         logger.info(f"Price line plotted: {len(journal_df['price'])} points")
         
-        # Load indicator data
-        indicator_data = self._load_indicator_data(journal_df, config)
+        # ✅ Load indicator data CON run_dir
+        indicator_data = self._load_indicator_data(journal_df, config, run_dir)
         
         # Plot each indicator
         for idx, indicator_config in enumerate(indicators_to_plot):
@@ -468,108 +467,83 @@ class BacktestPlotter:
     # - _plot_indicator() non serve più (indicatori nello stesso panel)
     # - _plot_price_chart() originale sostituito con _plot_price_chart_with_indicators()
 
+    # plotter.py, metodo _load_indicator_data()
+
     def _load_indicator_data(self, journal_df: pd.DataFrame, 
-                        config: Dict[str, Any]) -> Dict[str, pd.Series]:
-        """
-        Load pre-calculated indicator data from Parquet files.
-        Adatta automaticamente: cerca prima la colonna configurata, poi 'value'.
-        """
+                        config: Dict[str, Any],
+                        run_dir: Path = None) -> Dict[str, pd.Series]:
         indicator_data = {}
         
-        base_data_dir = Path(config.get('data', {}).get('source_dir', 'data/raw'))
-        indicators_dir = base_data_dir.parent / 'indicators'
+        if run_dir is None:
+            logger.warning("run_dir not provided, cannot load indicators")
+            return indicator_data
         
-        # Per ogni indicatore definito in plotting (non in indicators!)
-        plotting_config = config.get('plotting', {})
-        indicators_to_plot = plotting_config.get('indicators_to_plot', [])
+        data_file = run_dir / 'data_with_indicators.parquet'
         
-        for plot_config in indicators_to_plot:
-            indicator_name = plot_config.get('name')
-            config_column_name = plot_config.get('column', 'sma_200')  # default
-            expected_label = plot_config.get('label', config_column_name)
+        if data_file.exists():
+            logger.info(f"Loading indicators from: {data_file}")
+            data_df = pd.read_parquet(data_file)
             
-            # Trova la definizione originale dell'indicatore
-            indicator_def = None
-            for ind in config.get('indicators', []):
-                if ind.get('name') == indicator_name:
-                    indicator_def = ind
-                    break
+            plotting_config = config.get('plotting', {})
+            indicators_to_plot = plotting_config.get('indicators_to_plot', [])
             
-            if not indicator_def:
-                logger.warning(f"No indicator definition found for {indicator_name}")
-                continue
-            
-            symbol = config['data']['symbols'][0] if config['data']['symbols'] else 'UNKNOWN'
-            params = indicator_def.get('params', {})
-            
-            # Trova il file
-            indicator_file = self._find_indicator_file(indicators_dir, symbol, 
-                                                    indicator_name, params)
-            
-            if not indicator_file:
-                logger.warning(f"No file found for {indicator_name}")
-                continue
-            
-            try:
-                indicator_df = pd.read_parquet(indicator_file)
+            for plot_config in indicators_to_plot:
+                expected_label = plot_config.get('label', 'Indicator')
+                column_name = plot_config.get('column')
                 
-                # CERCA LA COLONNA GIUSTA (logica prioritaria)
-                actual_column_name = None
-                
-                # 1. Prova 'value' (sempre presente)
-                if 'value' in indicator_df.columns:
-                    actual_column_name = 'value'
-                
-                # 2. Prova la colonna dalla config (se diversa da 'value')
-                elif config_column_name in indicator_df.columns:
-                    actual_column_name = config_column_name
-                
-                # 3. Fallback: prima colonna numerica
-                else:
-                    numeric_cols = indicator_df.select_dtypes(include=[np.number]).columns
-                    if len(numeric_cols) > 0:
-                        actual_column_name = numeric_cols[0]
-                
-                if not actual_column_name:
-                    logger.warning(f"No data column found in {indicator_file}")
+                if not column_name:
+                    logger.warning(f"No 'column' specified in plotting config")
                     continue
                 
-                logger.info(f"Using column '{actual_column_name}' for {indicator_name}")
+                if column_name not in data_df.columns:
+                    logger.warning(f"Column '{column_name}' not in DataFrame")
+                    logger.warning(f"Available: {list(data_df.columns)}")
+                    continue
                 
-                # ALLINEAMENTO TEMPORALE
-                if 'timestamp' in journal_df.columns and 'timestamp' in indicator_df.columns:
-                    # Converti timestamps
-                    journal_timestamps = pd.to_datetime(journal_df['timestamp'])
-                    indicator_df['timestamp'] = pd.to_datetime(indicator_df['timestamp'])
+                # ✅ FIX ALLINEAMENTO
+                try:
+                    # Caso 1: Entrambi hanno timestamp
+                    if 'timestamp' in journal_df.columns:
+                        # Journal potrebbe già avere timestamp come colonna, non come index
+                        journal_timestamps = pd.to_datetime(journal_df['timestamp'])
+                        
+                        # Data_df usa l'index come timestamp (da Parquet)
+                        if not isinstance(data_df.index, pd.DatetimeIndex):
+                            # Se ha colonna timestamp, usala
+                            if 'timestamp' in data_df.columns:
+                                data_df = data_df.set_index(pd.to_datetime(data_df['timestamp']))
+                            else:
+                                logger.error(f"data_df has no timestamp!")
+                                continue
+                        
+                        # Reindex sui timestamp del journal
+                        aligned_series = data_df[column_name].reindex(journal_timestamps.values)
+                        aligned_series.index = journal_timestamps.values
+                        
+                        logger.info(f"Aligned {column_name}: {aligned_series.notna().sum()} non-NaN values")
+                        
+                    # Caso 2: Allineamento per posizione (fallback)
+                    else:
+                        aligned_series = data_df[column_name].reset_index(drop=True)
+                        aligned_series = aligned_series.iloc[:len(journal_df)]
+                        logger.info(f"Position-aligned {column_name}")
                     
-                    # Set index e reindex
-                    indicator_df = indicator_df.set_index('timestamp')
-                    aligned_series = indicator_df[actual_column_name].reindex(journal_timestamps)
-                    
-                    # Fill NaN (dovrebbero essere pochi)
-                    nan_before = aligned_series.isna().sum()
-                    if nan_before > 0:
-                        logger.debug(f"Filling {nan_before} NaN values for {indicator_name}")
-                        aligned_series = aligned_series.ffill().bfill()
-                    
-                else:
-                    # Allineamento per indice
-                    aligned_series = indicator_df[actual_column_name].reset_index(drop=True)
-                    if len(aligned_series) != len(journal_df):
-                        # Trim o pad
-                        if len(aligned_series) > len(journal_df):
-                            aligned_series = aligned_series.iloc[:len(journal_df)]
-                        else:
-                            padding = pd.Series([aligned_series.iloc[-1]] * 
-                                            (len(journal_df) - len(aligned_series)))
-                            aligned_series = pd.concat([aligned_series, padding], 
-                                                    ignore_index=True)
-                
-                # Salva con il label della config (per plottaggio)
-                indicator_data[expected_label] = aligned_series
-                
-            except Exception as e:
-                logger.error(f"Error loading {indicator_name}: {e}")
+                    # Verifica risultato
+                    if aligned_series.isna().all():
+                        logger.error(f"⚠️ All NaN after alignment for {column_name}!")
+                        logger.error(f"   Journal timestamps: {journal_timestamps.iloc[:3].tolist()}")
+                        logger.error(f"   Data_df index: {data_df.index[:3].tolist()}")
+                    else:
+                        indicator_data[expected_label] = aligned_series
+                        logger.info(f"✅ Loaded '{column_name}' as '{expected_label}'")
+                        
+                except Exception as e:
+                    logger.error(f"Error aligning {column_name}: {e}")
+                    import traceback
+                    traceback.print_exc()
+        
+        else:
+            logger.warning(f"File not found: {data_file}")
         
         return indicator_data                               
 
@@ -795,18 +769,10 @@ class BacktestPlotter:
         return None
 
 
-    def create_all_plots(self, results: Dict[str, Any], run_dir: Path, config: Dict[str, Any]) -> Dict[str, Path]:
-        """
-        Create all standard plots for a backtest run.
-        
-        Args:
-            results: Results dictionary from BacktestEngine
-            run_dir: Directory to save plots
-            config: Configuration dictionary (ADDED)
-        
-        Returns:
-            Dictionary with plot file paths
-        """
+    # plotter.py
+
+    def create_all_plots(self, results: Dict[str, Any], run_dir: Path, 
+                        config: Dict[str, Any]) -> Dict[str, Path]:
         plot_paths = {}
         
         try:
@@ -824,14 +790,14 @@ class BacktestPlotter:
                     results['trades'], trade_plot_path
                 )
             
-            # 3. Enhanced price with signals plot (NOW WITH CONFIG)
+            # 3. Price with signals plot
             if results.get('journal') and results.get('trades'):
                 price_plot_path = run_dir / 'price_signals.png'
                 plot_paths['price'] = self.plot_price_with_signals(
                     results['journal'], 
                     results['trades'], 
-                    config,  # PASS CONFIG HERE
-                    price_plot_path
+                    config,
+                    price_plot_path  # ← Questo passa run_dir indirettamente
                 )
             
             logger.info(f"Created {len(plot_paths)} plots in {run_dir}")

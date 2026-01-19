@@ -1,5 +1,25 @@
 # PIPELINE ESECUTIVA - Flusso di Backtest
 
+
+### ## 🎯 SIMPLEX RISULTATO FINALE
+```
+Backtest:
+  data_loader → DataFrame (OHLCV)
+  indicator_manager → DataFrame + sma_100
+  engine → usa DataFrame
+  engine.run() → results['data'] = DataFrame ✅
+
+Journal Writer:
+  Salva results['data'] → data_with_indicators.parquet ✅
+
+Plotter:
+  Carica data_with_indicators.parquet
+  Usa column='sma_100' dal DataFrame
+  Plot corretto! ✅
+```
+
+
+
 ## 🔄 FLUSSO COMPLETO (Single o Multi-Asset)
 
 ```txt

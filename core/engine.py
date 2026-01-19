@@ -490,7 +490,9 @@ class BacktestEngine:
             'trades': self.trades,
             'journal': self.journal,
             'equity_curve': self.equity_curve,
-            'risk_manager': self.risk_manager.name
+            'risk_manager': self.risk_manager.name,
+
+            'data': self.data   # All DataFrame
         }
         
         return results

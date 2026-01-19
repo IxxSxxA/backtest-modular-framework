@@ -42,64 +42,55 @@ class JournalWriter:
             
             logger.info(f"JournalWriter initialized. Output directory: {self.output_dir}")
     
-    def save_backtest_results(
-        self,
-        results: Dict[str, Any],
-        config: Dict[str, Any],
-        strategy_name: str = None
-    ) -> Dict[str, Path]:
-        """
-        Save complete backtest results to files.
-        
-        Args:
-            results: Results dictionary from BacktestEngine
-            config: Configuration dictionary
-            strategy_name: Optional strategy name override
-            
-        Returns:
-            Dictionary with file paths
-        """
+    # journal_writer.py, metodo save_backtest_results()
+
+    def save_backtest_results(self, results: Dict[str, Any], config: Dict[str, Any], 
+                            strategy_name: str = None) -> Dict[str, Path]:
         # Create run directory
         run_dir = self._create_run_directory(config, strategy_name)
         
-        # Save different components
         file_paths = {}
         
         # 1. Save metrics summary
         file_paths['metrics'] = self._save_metrics(results, run_dir)
         
-        # 2. Save trades in Parquet format
+        # 2. Save trades
         if results.get('trades'):
             file_paths['trades'] = self._save_trades_parquet(results['trades'], run_dir)
         
-        # 3. Save journal in Parquet format
+        # 3. Save journal
         if results.get('journal'):
             file_paths['journal'] = self._save_journal_parquet(results['journal'], run_dir)
         
-        # 4. Save equity curve in Parquet format
+        # 4. Save equity curve
         if results.get('equity_curve'):
             file_paths['equity'] = self._save_equity_parquet(results['equity_curve'], run_dir)
         
         # 5. Save configuration
         file_paths['config'] = self._save_config(config, run_dir)
         
-        # 6. Save summary text file
+        # ✅ 6. AGGIUNGI QUESTO - Salva DataFrame completo con indicatori
+        if 'data' in results:
+            data_path = run_dir / 'data_with_indicators.parquet'
+            results['data'].to_parquet(data_path)
+            file_paths['data'] = data_path
+            logger.info(f"Saved data with indicators: {data_path}")
+        
+        # 7. Save summary text
         file_paths['summary'] = self._save_summary_text(results, run_dir)
         
-        # 7. Create plots if matplotlib is available
+        # 8. Create plots
         if PLOTTING_AVAILABLE:
             try:
                 plotter = BacktestPlotter()
+                # ✅ PASSA ANCHE run_dir al plotter
                 plot_paths = plotter.create_all_plots(results, run_dir, config)
                 file_paths.update(plot_paths)
                 logger.info(f"Created {len(plot_paths)} plots")
             except Exception as e:
                 logger.error(f"Failed to create plots: {e}")
-        else:
-            logger.info("Skipping plots (matplotlib not available)")
         
         logger.info(f"Results saved to: {run_dir}")
-        
         return file_paths
     
     def _create_run_directory(

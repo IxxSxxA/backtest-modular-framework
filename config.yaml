@@ -1,18 +1,22 @@
 # config.yaml
 
 # === CORE SETTINGS ===
+# GENERAL SETTINGS
 engine:
   tf: "1m"
   initial_capital: 10000
-  commission: 0.001
+  commission: 0.001                 # Should be fee and  consider TAKER or MAKER -> For initial PHASES we can meke it simple and use only this one param
   lookback_window: 100
 
 # === DATA SOURCE ===
+# WHERE ARE RAW DATA -> 1M TF NEEDED
 data:
   symbols: ["BTCUSDT"]        # List of symbols to backtest
   timeframe: "1m"                 # Data timeframe
   source_dir: "data/raw"      # Directory with parquet files
   
+
+  # THIS SHOULD MOVE TO STRATEGY AND NOT STAY HERE
   # Optional date filtering
   filter:
     start: "2025-10-29"
@@ -22,6 +26,8 @@ data:
 strategy:
   entry:
     name: "price_above_sma"
+    # THESE PARAMS ARE EXAMPLES AND SHOULD NOT BE USED HERE - THEY BELONGS TO INDICATORS
+    # Strategy should have a TF -> Where is?
     params:
       period: 100              # Must match indicator SMA period!
       lookback: 1
@@ -49,22 +55,31 @@ indicators:
 # === JOURNALING ===
 journal:
   save_dir: "data/journals/"
-  filename_template: "{symbol}_{entry_strategy}_{timestamp}.parquet"
+  filename_template: "{symbol}_{entry_strategy}_{timestamp}"
   
-  # Basic fields // Add if needed
-  fields:
-    - timestamp
-    - symbol
-    - price_close
-    - entry_signal
-    - exit_signal
-    - in_position
-    - position_size
-    - capital
+  # Basic fields // Add if needed -> NOW IT MUST SAVE ALL DATA -> PASS ALL TO PLOTTER
+  # OR IT CAN BE ENGINE.PY THAT SAVE ALL DATAFRAME WITH ALL VALUES
+  # OR WE CAN RENAME DATA_LOADER TO DATA_MANAGER AND AFTER BUILDING THE DATAFRAME IT ALSO SAVE IT
+  # BUT IT'S ENGINE.PY THAT CAN HAVE ALL PARAMS
+  # TO CHECK THIS POINT
+  # fields:
+  #   - timestamp
+  #   - symbol
+  #   - price_close
+  #   - entry_signal
+  #   - exit_signal
+  #   - in_position
+  #   - position_size
+  #   - capital
 
 
 
 # === PLOTTING CONFIGURATION ===
+#  Maybe we can change in just true/false and not be so specific
+# plotting:
+  # plot_indicators: true
+# But then how to manage multiple indicators settings?
+
 plotting:
   indicators_to_plot:
     - name: "sma"
@@ -73,14 +88,10 @@ plotting:
       linewidth: 3
       alpha: 1
       label: "SMA 100"
-    
-    # - name: "ema"
-    #   column: "ema_50" 
-    #   color: "#3366ff"
-    #   linewidth: 1.5
-    #   alpha: 0.7
-    #   label: "EMA 50"
-  
+
+# **Il `column` deve corrispondere al nome della colonna nel DataFrame!**    
+
+
   # Opzioni di layout
   layout:
     price_height_ratio: 3
@@ -90,3 +101,7 @@ plotting:
   style:
     background_color: "#f5f5f5"
     grid_alpha: 0.2
+
+
+
+
