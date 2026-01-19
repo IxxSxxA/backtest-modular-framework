@@ -1,72 +1,131 @@
-# TRADING FRAMEWORK - Backtesting Modulare in Python
+# TRADING FRAMEWORK - Modular Backtesting in Python
 
-## 🎯 COSA VOGLIAMO OTTENERE
+## NOTE ON TIMEFRAME AND INDICATOR CALCULATION
 
-Un sistema di backtesting **semplice, modulare e veloce** che permetta di:
-1. **Scrivere strategie in pochi minuti** - senza boilerplate code
-2. **Testare idee rapidamente** - con cache intelligente per performance
-3. **Essere estensibile** - aggiungere indicatori, strategie, assets facilmente
-4. **Avere dati strutturati** - journal completo per analisi post-trade
-5. **Prepararsi al futuro** - architettura pronta per UI e trading live
+**Timeframe Approach**
+This framework adopts a pragmatic approach to calculating indicators across multiple timeframes:
 
-**Filosofia:** La strategia è una **funzione pura** che dato un contesto di mercato (prezzi, indicatori) restituisce True/False. Tutto il resto (gestione denaro, posizioni, commissioni) è gestito dal framework.
+### Fundamental Principle: Backtest-Production Consistency
+- **Base data**: All backtesting is performed on 1-minute (1m TF) data
+- **Multi-TF indicators**: Indicators that normally require higher timeframes (e.g., 15m, 1h, 4h) are calculated by converting the period
+- **Philosophy**: What matters is that the **same logic** is used in both backtesting and production
 
-## 🛠️ COME OTTENERE IL NOSTRO SCOPO
+### Period Conversion for Different Timeframes
+Example: SMA 200 on 15-minute data using 1-minute data:
+```
+SMA_15m_period_200 = 200 candles × 15 minutes = 3000 minutes
+                   = SMA_1m_period_3000
+```
 
-### Principi di Design:
-1. **Separation of Concerns**: 
-   - Strategia: solo logica True/False
-   - Engine: gestione stato ed esecuzione
-   - Data: formato standard (Parquet) con cache
+### Advantages of This Approach
+1. **Architectural simplification**: No need to implement data resampling
+2. **Performance**: Direct calculations on 1m data already in memory
+3. **Consistency**: Same calculation in backtest and production
+4. **Sufficient accuracy** for many close-based indicators
+
+### Limitations and Considerations
+#### Indicators that work well with conversion:
+- **SMA/EMA/MACD** (close-based) → minimal differences (<0.01%)
+- **RSI/Stochastic** → small differences (1-2%) generally acceptable
+
+#### Indicators that may have significant differences:
+- **ATR (Average True Range)** → uses candle high/low, resampling can yield different results
+- **Bollinger Bands** → depends on price standard deviation
+- **Volume-based indicators** → volume aggregation is non-linear
+
+### Documentation of Implementation Choices
+Each strategy should document:
+```yaml
+strategy:
+  indicators:
+    - name: "sma"
+      tf: "15m"
+      calculated_as: "sma_3000_1m"  # Converted period
+      note: "Equivalent to SMA 200 15m for consistency"
+```
+
+### Why This Choice is Valid
+1. **Practical realism**: In production, you'll use the same simplified calculations
+2. **Focus on edge**: If a strategy has edge, it will manifest even with approximate calculations
+3. **Reduced complexity**: Avoids multi-TF synchronization issues
+
+### When to Consider True Resampling
+Consider implementing true resampling if:
+1. You heavily use OHLC-based indicators (ATR, Donchian, etc.)
+2. You need millimeter precision for result publication
+3. The strategy is extremely sensitive to exact signal timing
+
+### Conclusion
+This approach offers a good compromise between implementation simplicity and sufficient accuracy for most trading strategies. The key is maintaining **absolute consistency** between the backtesting and production environments.
+
+**Remember**: A backtest that uses different logic from production is useless, even if it's "more accurate" according to external standards.
+
+## 🎯 OBJECTIVE
+
+A **simple, modular, and fast** backtesting system that allows you to:
+1. **Write strategies in minutes** – without boilerplate code
+2. **Test ideas quickly** – with intelligent caching for performance
+3. **Stay extensible** – easily add indicators, strategies, assets
+4. **Keep structured data** – full journal for post-trade analysis
+5. **Prepare for the future** – architecture ready for UI and live trading
+
+**Philosophy:** A strategy is a **pure function** that, given a market context (prices, indicators), returns True/False. Everything else (money management, positions, commissions) is handled by the framework.
+
+## 🛠️ HOW WE ACHIEVE OUR GOAL
+
+### Design Principles:
+1. **Separation of Concerns**:
+   - Strategy: only True/False logic
+   - Engine: state management and execution
+   - Data: standard format (Parquet) with caching
 2. **Configuration over Code**:
-   - Tutto configurabile via `config.yaml`
-   - Niente hardcoded parameters
+   - Everything configurable via `config.yaml`
+   - No hardcoded parameters
 3. **Cache First**:
-   - Indicatori calcolati una volta, usati infinite volte
-   - Performance istantanea dopo prima esecuzione
-4. **Modularità**:
-   - Entry/Exit strategie intercambiabili
-   - Aggiungi indicatori senza modificare core
+   - Indicators calculated once, used infinitely
+   - Instant performance after the first run
+4. **Modularity**:
+   - Entry/exit strategies are interchangeable
+   - Add indicators without modifying the core
 5. **Simple First**:
-   - Inizia con funzionalità base
-   - Estendi gradualmente
+   - Start with basic functionality
+   - Extend gradually
 
-## 📋 FASI DI IMPLEMENTAZIONE
+## 📋 IMPLEMENTATION PHASES
 
-### **✅ FASE 1: FOUNDATION** (MINIMO FUNZIONANTE) - **COMPLETATA!**
-- ✅ Struttura cartelle base
-- ✅ `config.yaml` schema minimale
-- ✅ Data loader per Parquet 1m
-- ✅ 1 Indicatore base (SMA) con cache
-- ✅ 1 Strategia entry semplice (price > SMA)
-- ✅ 1 Strategia exit semplice (fixed bars)
-- ✅ Engine loop base (senza risk management)
-- ✅ Journal writer base (CSV semplice)
-- ✅ Output console base
+### **✅ PHASE 1: FOUNDATION** (MINIMUM VIABLE PRODUCT) – **COMPLETED!**
+- ✅ Basic folder structure
+- ✅ Minimal `config.yaml` schema
+- ✅ Data loader for 1m Parquet files
+- ✅ 1 Basic indicator (SMA) with caching
+- ✅ 1 Simple entry strategy (price > SMA)
+- ✅ 1 Simple exit strategy (fixed bars)
+- ✅ Basic engine loop (without risk management)
+- ✅ Basic journal writer (simple CSV)
+- ✅ Basic console output
 
-**Obiettivo raggiunto:** `python backtest.py` funziona e produce risultati base! 🎉
+**Goal reached:** `python backtest.py` runs and produces basic results! 🎉
 
-### **✅ FASE 2: CORE FEATURES** - **COMPLETATA!**
-- ✅ Risk manager (position sizing) - `FixedPercentRisk`
-- ✅ Commissioni e slippage
-- ✅ **Journal in Parquet** (non CSV) - ottimizzazione performance
-- ✅ **Metriche base avanzate** - detailed summary con verification
-- ✅ **Grafico equity base** (matplotlib) - 3 tipi di plot
-- ✅ Integration completa risk management nel engine
+### **✅ PHASE 2: CORE FEATURES** – **COMPLETED!**
+- ✅ Risk manager (position sizing) – `FixedPercentRisk`
+- ✅ Commissions and slippage
+- ✅ **Journal in Parquet** (not CSV) – performance optimization
+- ✅ **Advanced basic metrics** – detailed summary with verification
+- ✅ **Basic equity chart** (matplotlib) – 3 plot types
+- ✅ Full integration of risk management into the engine
 
-**Obiettivo raggiunto:** Framework stabile con risk management e visualizzazione! 📊
+### **✅ PHASE 3: DEBUG & STABILIZATION** – **COMPLETED!**
+- ✅ **Fixed output directory** – now taken from config
+- ✅ **Debugged risk management calculations** – verified position sizing consistency
+- ✅ **Verified calculation accuracy** – P&L, commissions, equity
+- ✅ **Automatic consistency checks** in results
+- ✅ **Detailed logging** for calculation debugging
+- ✅ **Calculation documentation** – explanation of formulas used → in English → Document name: **`readme_calcs_reference.md`**
 
-### **📋 FASE 3: DEBUG & STABILIZATION** (PROSSIMA)
-- ✅ **Fix output directory** -> Must be taken from config
-- ✅ **Debug calcoli risk management** - verifica consistenza position sizing
-- ✅ **Verifica precisione calcoli** - P&L, commissioni, equity
-- ✅ **Controlli di consistenza** automatici nei risultati
-- ✅ **Logging dettagliato** per debugging calcoli
-- ✅ **Documentazione calcoli** - spiegazione formule usate -> In english! -> Suggest a name for the document
+**Goal reached:** Stable framework with risk management and visualization! 📊
 
-
-### **📋 FASE 4: ENHANCED FEATURES** 
-- [ ] Multi indicatori (EMA, RSI, ATR)
+### **📋 PHASE 4: ENHANCED FEATURES**
+- [ ] Multiple indicators (EMA, RSI, ATR)
 - [ ] Multiple entry/exit strategies
 - [ ] Multi-asset support
 - [ ] Multi-timeframe indicators
@@ -75,52 +134,52 @@ Un sistema di backtesting **semplice, modulare e veloce** che permetta di:
 - [ ] Monte Carlo simulations
 - [ ] Parameter optimization (grid search)
 
-### **📋 FASE 5: PRODUCTION READY**
-- [ ] Gestione errori robusta
-- [ ] Validazione config e dati
-- [ ] Logging strutturato
-- [ ] Report HTML completo
-- [ ] Script utilità (download data, cleanup)
-- [ ] BASIC UI web (Streamlit)
+### **📋 PHASE 5: PRODUCTION READY**
+- [ ] Robust error handling
+- [ ] Config and data validation
+- [ ] Structured logging
+- [ ] Complete HTML report
+- [ ] Utility scripts (download data, cleanup)
+- [ ] Basic web UI (Streamlit)
 
-### **📋 FASE 6: ADVANCED ECOSYSTEM**
-- [ ] Plugin system per indicatori/strategie
-- [ ] Cloud storage per dati/journal
-- [ ] API REST per automazione
-- [ ] Live trading bridge (futuro)
-- [ ] Documentation completa
+### **📋 PHASE 6: ADVANCED ECOSYSTEM**
+- [ ] Plugin system for indicators/strategies
+- [ ] Cloud storage for data/journal
+- [ ] REST API for automation
+- [ ] Live trading bridge (future)
+- [ ] Comprehensive documentation
 
-## 🔄 WORKFLOW DI SVILUPPO
+## 🔄 DEVELOPMENT WORKFLOW
 
-Per ogni fase:
-1. **Chat dedicata** su quella fase specifica
-2. **Implementazione incrementale**:
-   - Modifica `config.yaml` schema se necessario
-   - Implementa feature in moduli isolati
-   - Test con dati sample
-   - Integra nel flow principale
+For each phase:
+1. **Dedicated chat** for that specific phase
+2. **Incremental implementation**:
+   - Modify `config.yaml` schema if needed
+   - Implement feature in isolated modules
+   - Test with sample data
+   - Integrate into main flow
 3. **Update documentation**:
-   - Aggiorna `readme.md` con progressi
-   - Documenta nuove feature
-   - Aggiorna esempi
-4. **Verifica consistenza**:
-   - Tutti i moduli lavorano insieme
-   - Cache funziona correttamente
-   - Output è come atteso
+   - Update `readme.md` with progress
+   - Document new features
+   - Update examples
+4. **Consistency verification**:
+   - All modules work together
+   - Cache works correctly
+   - Output is as expected
 
-## 📁 STRUTTURA CHIAVE (riassunto)
+## 📁 KEY STRUCTURE (summary)
 
 ```txt
 trading_framework/
-├── config.yaml # CENTRO DI CONTROLLO
-├── backtest.py # PUNTO DI INGRESSO
-├── core/ # Motore (modificare raramente)
+├── config.yaml              # CONTROL CENTER
+├── backtest.py              # ENTRY POINT
+├── core/                    # Engine (rarely modified)
 │   ├── data_loader.py
 │   ├── data_window.py
 │   ├── engine.py
 │   ├── indicator_manager.py
 │   └── journal_writer.py
-├── strategies/ # Logica trading (modificare spesso)
+├── strategies/              # Trading logic (often modified)
 │   ├── entry/
 │   │   ├── base_entry.py
 │   │   └── price_above_sma.py
@@ -131,78 +190,57 @@ trading_framework/
 │   └── risk/
 │       ├── base_risk.py
 │       └── fixed_percent.py
-├── indicators/ # Calcoli indicatori
+├── indicators/              # Indicator calculations
 │   ├── base_calculator.py
 │   └── sma_calculator.py
-├── reports/ # Visualizzazioni
+├── reports/                 # Visualizations
 │   ├── plotter.py
 │   └── __init__.py
-├── data/ # Dati e cache (NON versionare) // No hardcode -> Preso da config.yaml
-└── results/ # Output backtest // No hardcode -> Preso da config.yaml
+└── data/                    # Raw data + Precomputed Indicators (cache) + Journal Output → No hardcode → Read from config.yaml
 ```
 
+## 📝 DEVELOPMENT NOTES
 
+**Priorities:**
+1. Works → Correct → Fast → Beautiful
+2. Start with minimal working examples
+3. Test each component in isolation
+4. Maintain backward compatibility
 
-## 🐛 NOTE SU CALCOLI (DA VERIFICARE IN FASE 3)
+**Mantra:** “Write strategies, not boilerplate”
 
-Durante i test sono state osservate potenziali incongruenze nei calcoli:
-- Position sizing potrebbe non rispettare esattamente il `risk_per_trade` configurato
-- Piccole discrepanze nei calcoli di P&L (~0.02%)
-- Verificare consistenza tra calcoli nel log e nel summary
-
-**La FASE 3 si concentrerà sulla risoluzione di queste potenziali issue critiche.**
-
-## 📝 NOTE PER LO SVILUPPO
-
-**Priorità:**
-1. Funziona → Corretto → Veloce → Bello
-2. Iniziare con esempi minimi funzionanti
-3. Testare ogni componente isolatamente
-4. Mantenere backward compatibility
-
-**Mantra:** "Scrivi strategie, non boilerplate"
-
-## 🎯 DECISIONI ARCHITETTURALI:
+## 🎯 ARCHITECTURAL DECISIONS
 
 - **Parquet (and CSV/DB if required)**: performance, compression, schema evolution
-- **YAML over JSON/INI**: human readable, commenti, gerarchia
-- **Classi over functions**: per strategie, ma interfacce semplici
-- **Cache on disk**: tra esecuzioni, non solo in memoria
+- **YAML over JSON/INI**: human-readable, comments, hierarchy
+- **Classes over functions**: for strategies, but with simple interfaces
+- **Cache on disk**: across executions, not just in memory
 
-## 📊 PERFORMANCE ATTUALI:
+## 📊 CURRENT PERFORMANCE
 
-- **Prima esecuzione**: ~2-60s (calcolo indicatori)
-- **Esecuzioni successive**: ~5s (tutto in cache)
-- **Formato dati**: Parquet (veloce, compresso)
-- **Visualizzazioni**: Matplotlib PNG (compatto, universale)
+- **First run**: ~2–60s (indicator calculation)
+- **Subsequent runs**: ~5s (everything cached)
+- **Data format**: Parquet (fast, compressed)
+- **Visualizations**: Matplotlib PNG (compact, universal)
 
-## 🔧 COME AGGIUNGERE NUOVE FEATURES:
+## 🔧 HOW TO ADD NEW FEATURES
 
-### Nuovo risk manager:
-1. Crea `strategies/risk/nome_manager.py`
-2. Estendi `BaseRiskManager`
-3. Implementa `calculate_position_size()`
-4. Aggiungi a `config.yaml` sezione `strategy.risk`
+### New risk manager:
+1. Create `strategies/risk/manager_name.py`
+2. Extend `BaseRiskManager`
+3. Implement `calculate_position_size()`
+4. Add to `config.yaml` in the `strategy.risk` section
 
-### Nuovo plot type:
-1. Crea metodo in `reports/plotter.py`
-2. Aggiungi a `create_all_plots()`
-3. Il `JournalWriter` lo includerà automaticamente
+### New plot type:
+1. Create a method in `reports/plotter.py`
+2. Add it to `create_all_plots()`
+3. `JournalWriter` will include it automatically
 
-## 🎉 SUCCESSO FASE 2!
+## 🆕 LATEST IMPROVEMENTS
 
-La FASE 2 è stata completata con successo! Abbiamo aggiunto:
-
-1. ✅ **Risk management** con position sizing intelligente
-2. ✅ **Output Parquet** per performance ottimali
-3. ✅ **Metriche avanzate** con verification automatica
-4. ✅ **Visualizzazioni** con matplotlib
-5. ✅ **Framework stabile** e pronto per debug
-
-**Prossimi passi:** FASE 3 - Debug e stabilizzazione dei calcoli critici!
-
-*Documentazione creata il: 2024-01-16*
-*Ultimo aggiornamento: 2024-01-16 - FASE 2 COMPLETATA! 🎉*
-*Stato: PRONTO PER FASE 3 - DEBUG & STABILIZATION*
-[file content end]
+- **Dual‑line summary chart** now implemented – clearly shows both equity and benchmark/strategy comparison.
+- All Phase 3 debugging and stabilization tasks completed.
+- Output directory is now fully config‑driven.
+- Calculation consistency verified; logging enhanced for transparency.
+- Reference document **`calculation_reference.md`** created (in English) explaining all formulas used in the framework.
 

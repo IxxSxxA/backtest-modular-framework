@@ -33,11 +33,12 @@ class JournalWriter:
                 config: Configuration dictionary
             """
             # Prendi directory da config o usa default
-            if 'journal' in config and 'save_dir' in config['journal']:
-                self.output_dir = Path(config['journal']['save_dir'])
-            else:
-                self.output_dir = Path("results")  # Fallback
+            # if 'journal' in config and 'save_dir' in config['journal']:
+            #     self.output_dir = Path(config['journal']['save_dir'])
+            # else:
+            #     self.output_dir = Path("results")  # Fallback
             
+            self.output_dir = Path(config['journal']['save_dir'])
             self.output_dir.mkdir(parents=True, exist_ok=True)
             
             logger.info(f"JournalWriter initialized. Output directory: {self.output_dir}")
@@ -83,8 +84,15 @@ class JournalWriter:
         if PLOTTING_AVAILABLE:
             try:
                 plotter = BacktestPlotter()
-                # ✅ PASSA ANCHE run_dir al plotter
-                plot_paths = plotter.create_all_plots(results, run_dir, config)
+                
+                # PASSA results['data'] DIRETTAMENTE al plotter!
+                plot_paths = plotter.create_all_plots(
+                    results=results,
+                    run_dir=run_dir,
+                    config=config,
+                    full_data_df=results.get('data')  # ← Full DataFrame
+                )
+                
                 file_paths.update(plot_paths)
                 logger.info(f"Created {len(plot_paths)} plots")
             except Exception as e:

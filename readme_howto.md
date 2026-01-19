@@ -1,39 +1,40 @@
-# 🧩 COME SCRIVERE COMPONENTI PER IL FRAMEWORK
+# 🧩 HOW TO WRITE COMPONENTS FOR THE FRAMEWORK
 
-## **1. COME SCRIVERE UN INDICATORE**
+## 1. HOW TO WRITE AN INDICATOR
 
 **File:** `indicators/sma_calculator.py`
+
 ```python
 from .base_calculator import BaseCalculator
 import talib
 
 class SMACalculator(BaseCalculator):
     """
-    Calcola Simple Moving Average
+    Calculates Simple Moving Average
     Config example: {name: "sma", params: {period: 20}, tf: "1m", column: "sma_20"}
     """
     
     def calculate(self, data, params):
         """
-        data: DataFrame con OHLCV + altre colonne
-        params: dict con parametri (es: {"period": 20})
-        Restituisce: Series con valori SMA
+        data: DataFrame with OHLCV + other columns
+        params: dict with parameters (e.g., {"period": 20})
+        Returns: Series with SMA values
         """
         period = params.get('period', 20)
         
-        # Se c'è tf_multiplier (indicatore su TF diverso)
+        # If there's tf_multiplier (indicator on different timeframe)
         if hasattr(self, 'tf_multiplier'):
             period = period * self.tf_multiplier
         
-        # Calcola SMA usando TA-Lib (o tua implementazione)
+        # Calculate SMA using TA-Lib (or your own implementation)
         sma_values = talib.SMA(data['close'], timeperiod=period)
         
         return sma_values
 ```
 
-Registrazione automatica: Il sistema trova tutti i file in indicators/ e li registra automaticamente.
+Automatic registration: The system finds all files in indicators/ and registers them automatically.
 
-## 2. COME SCRIVERE UNA STRATEGIA ENTRY
+## 2. HOW TO WRITE AN ENTRY STRATEGY
 
 File: strategies/entry/ema_cross.py
 
@@ -42,7 +43,7 @@ from .base_entry import BaseEntryStrategy
 
 class EMACrossEntry(BaseEntryStrategy):
     """
-    Entra quando EMA veloce incrocia sopra EMA lenta
+    Enters when fast EMA crosses above slow EMA
     Config: {name: "ema_cross", params: {fast: 20, slow: 50}}
     """
     
@@ -53,48 +54,47 @@ class EMACrossEntry(BaseEntryStrategy):
     
     def should_enter(self, data):
         """
-        data: oggetto speciale che permette accesso con offset
-               data['ema_fast'][0] = valore corrente
-               data['ema_fast'][-1] = valore candela precedente
-               data['ema_fast'][-2] = due candele fa
+        data: special object that allows access with offset
+               data['ema_fast'][0] = current value
+               data['ema_fast'][-1] = previous candle value
+               data['ema_fast'][-2] = two candles ago
         
-        Restituisce: True se condizioni entry soddisfatte
+        Returns: True if entry conditions are satisfied
         """
-        # Accedi agli indicatori PRECALCOLATI
-        # I nomi ('ema_fast', 'ema_slow') vengono da config.yaml
+        # Access PRECALCULATED indicators
+        # Names ('ema_fast', 'ema_slow') come from config.yaml
         ema_fast = data['ema_fast']
         ema_slow = data['ema_slow']
         
-        # Logica di entry
+        # Entry logic
         current_cross = ema_fast[0] > ema_slow[0]
         previous_cross = ema_fast[-1] <= ema_slow[-1]
         
-        # Eventuali condizioni aggiuntive
+        # Additional conditions if needed
         volume_ok = data['volume'][0] > data['volume_sma'][0]
         
         return current_cross and previous_cross and volume_ok
 ```
 
-### L'oggetto data - Come funziona:
-
+The data object - How it works:
 ```python
-# Dentro should_enter(), hai accesso a:
-data['close'][0]      # Prezzo close corrente
-data['close'][-1]     # Close candela precedente
-data['close'][-5]     # Close 5 candele fa
+# Inside should_enter(), you have access to:
+data['close'][0]      # Current close price
+data['close'][-1]     # Previous close
+data['close'][-5]     # Close 5 candles ago
 
-data['sma_20'][0]     # SMA20 corrente (già calcolata)
-data['rsi_14'][-1]    # RSI14 candela precedente
+data['sma_20'][0]     # Current SMA20 (already calculated)
+data['rsi_14'][-1]    # RSI14 previous candle
 
-data['volume']        # Tutti i volumi (lista/array)
-data['high']          # Tutti gli high
-# ... qualsiasi colonna presente nei dati
+data['volume']        # All volumes (list/array)
+data['high']          # All highs
+# ... any column present in the data
 
-# L'engine fornisce una "finestra scorrevole" di dati
-# così puoi accedere a valori passati con offset negativo
+# The engine provides a "sliding window" of data
+# so you can access past values with negative offset
 ```
 
-## 3. COME SCRIVERE UNA STRATEGIA EXIT
+## 3. HOW TO WRITE AN EXIT STRATEGY
 
 File: strategies/exit/fixed_tp_sl.py
 
@@ -103,7 +103,7 @@ from .base_exit import BaseExitStrategy
 
 class FixedTPSLExit(BaseExitStrategy):
     """
-    Exit con Take Profit e Stop Loss fissi
+    Exit with fixed Take Profit and Stop Loss
     Config: {name: "fixed_tp_sl", params: {tp_percent: 0.05, sl_percent: 0.02}}
     """
     
@@ -114,17 +114,17 @@ class FixedTPSLExit(BaseExitStrategy):
     
     def should_exit(self, data, entry_price, entry_time):
         """
-        data: stesso oggetto delle entry strategies
-        entry_price: prezzo a cui siamo entrati (fornito dall'engine)
-        entry_time: timestamp dell'entry (fornito dall'engine)
+        data: same object as entry strategies
+        entry_price: price at which we entered (provided by engine)
+        entry_time: entry timestamp (provided by engine)
         
-        Restituisce: (should_exit, reason)
-        - should_exit: True se uscire
-        - reason: stringa motivo ("TP", "SL", "TRAILING", etc.)
+        Returns: (should_exit, reason)
+        - should_exit: True to exit
+        - reason: string reason ("TP", "SL", "TRAILING", etc.)
         """
         current_price = data['close'][0]
         
-        # Calcola P&L percentuale
+        # Calculate P&L percentage
         pnl_pct = (current_price / entry_price) - 1
         
         # Check Take Profit
@@ -135,14 +135,14 @@ class FixedTPSLExit(BaseExitStrategy):
         if pnl_pct <= -self.sl_percent:
             return True, "STOP_LOSS"
         
-        # Altre condizioni di exit (es: segnale contrario)
-        if data['rsi'][0] > 70:  # RSI ipercomprato
+        # Other exit conditions (e.g., contrary signal)
+        if data['rsi'][0] > 70:  # RSI overbought
             return True, "RSI_OVERBOUGHT"
         
         return False, None
 ```
 
-## 4. COME SCRIVERE RISK MANAGEMENT
+## 4. HOW TO WRITE RISK MANAGEMENT
 
 File: strategies/risk/fixed_percent.py
 
@@ -151,7 +151,7 @@ from .base_risk import BaseRiskManager
 
 class FixedPercentRisk(BaseRiskManager):
     """
-    Rischia percentuale fissa del capitale per trade
+    Risks fixed percentage of capital per trade
     Config: {name: "fixed_percent", params: {risk_per_trade: 0.02}}
     """
     
@@ -161,57 +161,53 @@ class FixedPercentRisk(BaseRiskManager):
     
     def calculate_position_size(self, capital, entry_price, stop_loss_price):
         """
-        Calcola quanto comprare/vendere
+        Calculate how much to buy/sell
         
         Formula: position_size = (capital * risk_per_trade) / (entry_price - stop_loss_price)
         
-        capital: capitale disponibile
-        entry_price: prezzo di entry
-        stop_loss_price: prezzo di stop loss (dal exit strategy)
+        capital: available capital
+        entry_price: entry price
+        stop_loss_price: stop loss price (from exit strategy)
         
-        Restituisce: quantità da tradare (es: 0.5 BTC)
+        Returns: quantity to trade (e.g., 0.5 BTC)
         """
         risk_amount = capital * self.risk_per_trade
         risk_per_unit = abs(entry_price - stop_loss_price)
         
         if risk_per_unit <= 0:
-            return 0  # Evita divisione per zero
+            return 0  # Avoid division by zero
         
         position_size = risk_amount / risk_per_unit
         
         return position_size
 ```
 
-## 5. IL FLUSSO COMPLETO DI UNA CANDELA
+## 5. COMPLETE CANDLE-FLOW
 
-```text
-Per ogni candela (timestamp ordinato):
+For each candle (ordered timestamp):
     ↓
-1. Engine prepara "data window":
-   - Prende OHLCV corrente
-   - Aggiunge tutti gli indicatori calcolati
-   - Crea oggetto con accesso a offset (data['ind'][0], [-1], etc.)
+1. Engine prepares "data window":
+   - Takes current OHLCV
+   - Adds all calculated indicators
+   - Creates object with offset access (data['ind'][0], [-1], etc.)
     ↓
-2. Se NON in posizione:
-   - Chiama entry_strategy.should_enter(data)
-   - Se True: calcola position size → entra
+2. If NOT in position:
+   - Calls entry_strategy.should_enter(data)
+   - If True: calculates position size → enters
     ↓
-3. Se IN posizione:
-   - Chiama exit_strategy.should_exit(data, entry_price, entry_time)
-   - Se True: esegue exit → calcola P&L
+3. If IN position:
+   - Calls exit_strategy.should_exit(data, entry_price, entry_time)
+   - If True: executes exit → calculates P&L
     ↓
-4. Scrivi nel journal:
+4. Writes to journal:
    - Timestamp, symbol, price
    - entry_signal (True/False)
    - exit_signal (True/False + reason)
    - in_position, position_size, capital
-   - valori indicatori (opzionale)
-```
-
-## 6. ESEMPIO COMPLETO: SMA CROSS STRATEGY
+   - indicator values (optional)
+6. COMPLETE EXAMPLE: SMA CROSS STRATEGY
 
 config.yaml:
-
 ```yaml
 strategy:
   entry:
@@ -238,21 +234,18 @@ indicators:
     column: "sma_slow"
 ```
 
-### strategies/entry/sma_cross.py:
-
+### strategies/EXAMPLES
 ```python
 class SMACrossEntry:
     def should_enter(self, data):
-        # Condizione: SMA20 incrocia sopra SMA50
+        # Condition: SMA20 crosses above SMA50
         return (
             data['sma_fast'][0] > data['sma_slow'][0] and 
             data['sma_fast'][-1] <= data['sma_slow'][-1]
         )
-```
 
-### strategies/exit/fixed_tp_sl.py:
 
-```python
+
 class FixedTPSLExit:
     def should_exit(self, data, entry_price, entry_time):
         current_price = data['close'][0]
@@ -266,13 +259,13 @@ class FixedTPSLExit:
         return False, None
 ```
 
-## 7. CLASSI BASE (template da seguire)
+## 7. BASE CLASSES (templates to follow)
 
-strategies/entry/base_entry.py:
+### strategies/entry/base_entry.py:
 
 ```python
 class BaseEntryStrategy:
-    """Classe base per tutte le entry strategies"""
+    """Base class for all entry strategies"""
     
     def __init__(self, params=None):
         self.params = params or {}
@@ -280,16 +273,16 @@ class BaseEntryStrategy:
     
     def should_enter(self, data):
         """
-        DA IMPLEMENTARE nelle classi figlie
-        data: oggetto con accesso a dati e indicatori
-        Restituisce: True se entry conditions soddisfatte
+        TO BE IMPLEMENTED by child classes
+        data: object with access to data and indicators
+        Returns: True if entry conditions satisfied
         """
-        raise NotImplementedError("Devi implementare should_enter()")
+        raise NotImplementedError("Must implement should_enter()")
     
     def get_required_indicators(self):
         """
-        Opzionale: lista indicatori richiesti
-        Es: ['sma_20', 'rsi_14', 'volume_ma']
+        Optional: list of required indicators
+        Example: ['sma_20', 'rsi_14', 'volume_ma']
         """
         return []
 ```
@@ -298,7 +291,7 @@ class BaseEntryStrategy:
 
 ```python
 class BaseExitStrategy:
-    """Classe base per tutte le exit strategies"""
+    """Base class for all exit strategies"""
     
     def __init__(self, params=None):
         self.params = params or {}
@@ -306,17 +299,17 @@ class BaseExitStrategy:
     
     def should_exit(self, data, entry_price, entry_time):
         """
-        DA IMPLEMENTARE
-        Restituisce: (should_exit: bool, reason: str)
+        TO BE IMPLEMENTED
+        Returns: (should_exit: bool, reason: str)
         """
-        raise NotImplementedError("Devi implementare should_exit()")
+        raise NotImplementedError("Must implement should_exit()")
 ```
 
 ### indicators/base_calculator.py:
 
 ```python
 class BaseCalculator:
-    """Classe base per tutti gli indicatori"""
+    """Base class for all indicators"""
     
     def __init__(self, symbol=None, timeframe=None):
         self.symbol = symbol
@@ -324,41 +317,40 @@ class BaseCalculator:
     
     def calculate(self, data, params):
         """
-        DA IMPLEMENTARE
-        data: DataFrame con OHLCV
-        params: dict con parametri indicatore
-        Restituisce: Series con valori calcolati
+        TO BE IMPLEMENTED
+        data: DataFrame with OHLCV
+        params: dict with indicator parameters
+        Returns: Series with calculated values
         """
-        raise NotImplementedError("Devi implementare calculate()")
+        raise NotImplementedError("Must implement calculate()")
     
     def get_cache_key(self, params):
         """
-        Genera chiave univoca per cache
-        Es: "sma_20_1m" per SMA periodo 20 su TF 1m
+        Generate unique key for cache
+        Example: "sma_20_1m" for SMA period 20 on TF 1m
         """
         param_str = "_".join(f"{k}{v}" for k, v in sorted(params.items()))
         return f"{self.__class__.__name__.lower()}_{param_str}_{self.timeframe}"
 ```
 
-## 8. CONVENZIONI E BUONE PRATICHE
+## 8. CONVENTIONS AND BEST PRACTICES
 
-- Nomi indicatori nel config = nomi colonne in data
-- Offset negativi per valori passati: [0] corrente, [-1] precedente
-- Le strategie non gestiscono stato - solo condizioni booleane
-- Tutto configurabile via YAML - niente hardcoded
-- Cache intelligente - riutilizza indicatori tra strategie
+Indicator names in config = column names in data
+Negative offsets for past values: [0] current, [-1] previous
+Strategies don't manage state - only boolean conditions
+Everything configurable via YAML - no hardcoded values
+Intelligent caching - reuses indicators between strategies
 
-## 9. DEBUGGING E LOGGING
+## 9. DEBUGGING AND LOGGING
+In strategies you can add logging:
 
-Nelle strategie puoi aggiungere logging:
-
-```python 
+```python
 import logging
 logger = logging.getLogger(__name__)
 
 class MyStrategy(BaseEntryStrategy):
     def should_enter(self, data):
-        # Logga valori per debugging
+        # Log values for debugging
         logger.debug(f"SMA fast: {data['sma_fast'][0]:.2f}, SMA slow: {data['sma_slow'][0]:.2f}")
         
         if condition:
@@ -368,8 +360,9 @@ class MyStrategy(BaseEntryStrategy):
         return False
 ```
 
-- Il journal parquet contiene TUTTI i dati per analisi post-trade.
-- Con questa guida, scrivere una nuova strategia è:
-- Definire indicatori in config.yaml
-- Scrivere 10-20 righe in strategies/entry/nuova_strategia.py
-- Eseguire python backtest.py
+The Parquet journal contains ALL data for post-trade analysis.
+
+With this guide, writing a new strategy is:
+- Define indicators in config.yaml
+- Write 10-20 lines in strategies/entry/new_strategy.py
+- Run python backtest.py

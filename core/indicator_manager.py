@@ -89,22 +89,12 @@ class IndicatorManager:
     
     def calculate_indicator(self, data: pd.DataFrame, indicator_config: Dict[str, Any], 
                         symbol: str, timeframe: str) -> pd.Series:
-
         """
         Calculate indicator based on configuration.
-        
-        Args:
-            data: OHLCV DataFrame
-            indicator_config: Dictionary with indicator configuration
-                Example: {'name': 'sma', 'params': {'period': 20}, 'tf': '1m', 'column': 'sma_20'}
-            symbol: Trading symbol
-            timeframe: Data timeframe
-            
-        Returns:
-            Series with indicator values
         """
         indicator_name = indicator_config['name']
         params = indicator_config.get('params', {})
+        column_name = indicator_config.get('column')  # Get column name from config
         
         # Get calculator
         CalculatorClass = self.calculators.get(indicator_name)
@@ -113,23 +103,15 @@ class IndicatorManager:
         
         calculator = CalculatorClass(symbol=symbol, timeframe=timeframe)
         
-        # Calculate with caching
-        values = calculator.calculate_with_cache(data, params)
+        # Calculate with caching - PASS column_name
+        values = calculator.calculate_with_cache(data, params, column_name)
         
-        # 🔍 DEBUG 1
+        # 🔍 DEBUG (puoi rimuovere dopo il test)
         print(f"🔍 After calculate_with_cache:")
         print(f"   values.name = {values.name}")
+        print(f"   column_name from config = {column_name}")
         
-        # Rename series if column name specified
-        column_name = indicator_config.get('column')
-        
-        # 🔍 DEBUG 2
-        print(f"🔍 column_name from config = {column_name}")
-        
-        if column_name:
-            values.name = column_name
-            # 🔍 DEBUG 3
-            print(f"🔍 After rename: values.name = {values.name}")
+        # NON SERVE PIÙ RENAME! calculate_with_cache già gestisce il nome
         
         return values
     
@@ -157,42 +139,19 @@ class IndicatorManager:
         for config in indicator_configs:
             try:
                 indicator_name = config['name']
-                logger.info(f"Calculating indicator: {indicator_name} for {symbol}")
+                logger.info(f"Calculating {indicator_name} → {config.get('column', indicator_name)}")
                 
+                # Calcola (usa caching)
                 values = self.calculate_indicator(data, config, symbol, timeframe)
                 
-                # 🔍 DEBUG COMPLETO
+                # Aggiungi al DataFrame
                 column_name = config.get('column', indicator_name)
-                print(f"\n{'='*60}")
-                print(f"🔍 ADDING INDICATOR TO DATAFRAME:")
-                print(f"{'='*60}")
-                print(f"Indicator name: {indicator_name}")
-                print(f"Column name from config: {config.get('column')}")
-                print(f"Column name final: {column_name}")
-                print(f"values.name: {values.name}")
-                print(f"values shape: {values.shape}")
-                print(f"values index type: {type(values.index)}")
-                print(f"result_df index type: {type(result_df.index)}")
-                print(f"Index match: {values.index.equals(result_df.index)}")
-                print(f"\nBEFORE: result_df.shape = {result_df.shape}")
-                print(f"BEFORE: result_df.columns = {list(result_df.columns)}")
-                
-                # Aggiungi colonna
                 result_df[column_name] = values
                 
-                print(f"\nAFTER: result_df.shape = {result_df.shape}")
-                print(f"AFTER: result_df.columns = {list(result_df.columns)}")
-                print(f"Column '{column_name}' in DataFrame: {column_name in result_df.columns}")
-                
-                if column_name in result_df.columns:
-                    print(f"✅ SUCCESS! First 3 values: {result_df[column_name].head(3).tolist()}")
-                else:
-                    print(f"❌ FAILED! Column not added!")
-                
-                print(f"{'='*60}\n")
+                logger.info(f"✅ Added column '{column_name}' to DataFrame")
                 
             except Exception as e:
-                logger.error(f"Failed to calculate indicator {config.get('name', 'unknown')}: {e}")
+                logger.error(f"Failed to calculate indicator {config}: {e}")
                 raise
         
         return result_df

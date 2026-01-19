@@ -124,34 +124,39 @@ class BaseCalculator(ABC):
             cache_file.unlink(missing_ok=True)
             return False
     
-            # Don't raise - caching is optional
-
-
-    
-    def save_to_cache(self, values: pd.Series, params: Dict[str, Any]):
+    def save_to_cache(self, values: pd.Series, params: Dict[str, Any], column_name: str = None):
         """
-        Save indicator values to cache.
+        Save indicator values to cache with correct column name.
         
         Args:
-            values: Series with calculated values (name will be preserved in metadata)
+            values: Series with calculated values
             params: Indicator parameters used
+            column_name: Desired column name (from config)
         """
         cache_file = self.get_cache_filepath(params)
         
         try:
-            # ✅ FIX: Usa sempre 'value' come colonna standard nella cache
-            # (il nome della Series sarà gestito da indicator_manager)
-            df = pd.DataFrame({'value': values})
+            # Use column_name if provided, otherwise use series name or 'value'
+            if column_name:
+                col_name = column_name
+            elif values.name and values.name != 'value':  # Avoid generic 'value'
+                col_name = values.name
+            else:
+                col_name = 'value'
             
-            # Optional: Salva anche il nome originale come metadato
-            # (non necessario se indicator_manager gestisce il rename)
+            # Save with correct column name
+            df = pd.DataFrame({col_name: values})
+            
+            # Save metadata about column name in DataFrame attributes
+            df.attrs['column_name'] = col_name
+            df.attrs['indicator_name'] = self.__class__.__name__.replace('Calculator', '').lower()
+            df.attrs['params'] = params
             
             df.to_parquet(cache_file)
-            logger.debug(f"Saved to cache: {cache_file.name}")
+            logger.debug(f"Saved to cache: {cache_file.name} (column: {col_name})")
             
         except Exception as e:
             logger.error(f"Error saving cache {cache_file}: {e}")
-
 
     def load_from_cache(self, params: Dict[str, Any]) -> pd.Series:
         """
@@ -161,7 +166,7 @@ class BaseCalculator(ABC):
             params: Indicator parameters
             
         Returns:
-            Series with cached values (name will be set by indicator_manager)
+            Series with cached values (with correct name)
         """
         cache_file = self.get_cache_filepath(params)
         
@@ -171,34 +176,47 @@ class BaseCalculator(ABC):
         try:
             df = pd.read_parquet(cache_file)
             
-            # ✅ FIX: Carica 'value' e ritorna Series senza nome
-            # (indicator_manager setterà il nome corretto dopo)
-            if 'value' not in df.columns:
-                raise ValueError(f"Cache file missing 'value' column: {cache_file}")
+            # Determine which column to use
+            if len(df.columns) == 1:
+                # Single column - use it
+                col_name = df.columns[0]
+            elif 'value' in df.columns:
+                # Fallback to 'value' for backward compatibility
+                col_name = 'value'
+            else:
+                # Use first column
+                col_name = df.columns[0]
             
-            series = df['value']
+            # Get the series
+            series = df[col_name]
             series.index = pd.to_datetime(df.index) if not isinstance(df.index, pd.DatetimeIndex) else df.index
             
-            # ✅ NON settare series.name qui, lascia che indicator_manager lo faccia
+            # Set series name from column name
+            series.name = col_name
             
-            logger.debug(f"Loaded from cache: {cache_file.name}")
+            # Try to restore original name from metadata if available
+            if hasattr(df, 'attrs') and 'column_name' in df.attrs:
+                series.name = df.attrs['column_name']
+            
+            logger.debug(f"Loaded from cache: {cache_file.name} (column: {series.name})")
             return series
             
         except Exception as e:
             logger.error(f"Error loading cache {cache_file}: {e}")
             raise
 
-
-    def calculate_with_cache(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.Series:
+    def calculate_with_cache(self, data: pd.DataFrame, params: Dict[str, Any], 
+                             column_name: str = None) -> pd.Series:
         """
         Calculate indicator with caching support.
         
         Args:
             data: DataFrame with OHLCV data
             params: Indicator parameters
+            column_name: Desired column name (from config)
             
         Returns:
-            Series with calculated values
+            Series with calculated values (with correct name)
         """
         # Check cache first
         if self.is_cached(params):
@@ -208,6 +226,11 @@ class BaseCalculator(ABC):
                 # Ensure cached values align with current data
                 if len(cached_values) == len(data) and cached_values.index.equals(data.index):
                     logger.info(f"Using cached indicator: {self.get_cache_key(params)}")
+                    
+                    # If column_name is provided and different from cached name, rename
+                    if column_name and column_name != cached_values.name:
+                        cached_values.name = column_name
+                    
                     return cached_values
                 else:
                     logger.warning(f"Cache mismatch, recalculating: {self.get_cache_key(params)}")
@@ -218,7 +241,11 @@ class BaseCalculator(ABC):
         logger.info(f"Calculating indicator: {self.get_cache_key(params)}")
         values = self.calculate(data, params)
         
+        # Set column name if provided
+        if column_name:
+            values.name = column_name
+        
         # Save to cache for future use
-        self.save_to_cache(values, params)
+        self.save_to_cache(values, params, column_name)
         
         return values

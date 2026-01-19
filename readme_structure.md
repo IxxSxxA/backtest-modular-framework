@@ -1,67 +1,67 @@
-# STRUTTURA DEL PROGETTO
 
-## 📁 Organizzazione File e Cartelle
+# PROJECT STRUCTURE
 
+## 📁 File and Folder Organization
 
 ```txt
 trading_framework/
 │
-├── 📁 data/ # TUTTI i dati (NON versionato su git)
-│ ├── 📁 raw/ # Dati grezzi da exchange
-│ │ ├── BTCUSDT_1m.parquet # Formato: {SYMBOL}{TIMEFRAME}.parquet
+├── 📁 data/ # ALL data (NOT versioned in git)
+│ ├── 📁 raw/ # Raw exchange data
+│ │ ├── BTCUSDT_1m.parquet # Format: {SYMBOL}{TIMEFRAME}.parquet
 │ │ ├── ETHUSDT_1m.parquet
 │ │ └── .gitkeep
 │ │
-│ ├── 📁 indicators/ # Indicatori precalcolati (cache organizzata)
-│ │ ├── BTCUSDT/ # Cartella per symbol
-│ │ │ ├── sma_20_1m.parquet # Formato: {INDICATOR}{PARAMS}_{TF}.parquet
+│ ├── 📁 indicators/ # Precalculated indicators (organized cache)
+│ │ ├── BTCUSDT/ # Folder per symbol
+│ │ │ ├── sma_20_1m.parquet # Format: {INDICATOR}{PARAMS}_{TF}.parquet
 │ │ │ ├── rsi_14_1m.parquet
 │ │ │ └── ema_50_1h.parquet
 │ │ ├── ETHUSDT/
 │ │ │ └── ...
 │ │ └── .gitkeep
 │ │
-│ ├── 📁 journals/ # Journal dei backtest completi
+│ ├── 📁 journals/ # Complete backtest journals
 │ │ ├── BTCUSDT_ema_cross_fixed_tp_sl_20250116_143025.parquet
 │ │ ├── ETHUSDT_rsi_oversold_trailing_20250116_143030.parquet
 │ │ └── .gitkeep
 │ │
-│ └── 📁 strategy_ready/ # Dataset pronti per strategie (merge finale)
+│ └── 📁 strategy_ready/ # Strategy-ready datasets (final merge)
 │ └── .gitkeep
 │
-├── 📁 core/ # CODICE CORE (non modificare spesso)
+├── 📁 core/ # CORE CODE (not modified often)
 │ ├── init.py
-│ ├── engine.py # BacktestEngine principale
-│ ├── indicator_manager.py # Gestione cache indicatori intelligente
-│ ├── journal_writer.py # Scrittura journal in parquet
-│ ├── risk_manager.py # Gestione rischio e position sizing
-│ └── data_loader.py # Caricamento/aggregazione dati multi-TF
+│ ├── engine.py # Main BacktestEngine
+│ ├── indicator_manager.py # Intelligent indicator cache management
+│ ├── journal_writer.py # Parquet journal writing
+│ ├── risk_manager.py # Risk management and position sizing
+│ └── data_loader.py # Multi-TF data loading/aggregation
 │
-├── 📁 strategies/ # STRATEGIE (qui lavori sempre)
-│ ├── 📁 entry/ # Strategie di ENTRY (True/False)
+├── 📁 strategies/ # STRATEGIES (you always work here)
+│ ├── 📁 entry/ # ENTRY strategies (True/False)
 │ │ ├── init.py
-│ │ ├── base_entry.py # Classe base astratta
-│ │ ├── ema_cross.py # Esempio: Cross EMA veloce/lenta
-│ │ ├── rsi_oversold.py # Esempio: RSI < 30
-│ │ └── bollinger_squeeze.py # Esempio: Bande di Bollinger
+│ │ ├── base_entry.py # Abstract base class
+│ │ ├── ema_cross.py # Example: Fast/slow EMA cross
+│ │ ├── rsi_oversold.py # Example: RSI < 30
+│ │ └── bollinger_squeeze.py # Example: Bollinger Bands squeeze
 │ │
-│ ├── 📁 exit/ # Strategie di EXIT -> SONO TUTTE TP/SL (True/False + motivo)
+│ ├── 📁 exit/ # EXIT strategies -> ALL ARE TP/SL (True/False + reason)
 │ │ ├── init.py
-│ │ ├── base_exit.py # Classe base astratta
-│ │ ├── fixed_tp_sl.py # Take Profit / Stop Loss fissi
-│ │ ├── trailing_stop.py # Trailing stop dinamico
-│ │ ├── time_based.py # Exit dopo N candele
-│ │ └── atr_stop.py # Stop basato su ATR
+│ │ ├── base_exit.py # Abstract base class
+│ │ ├── fixed_tp_sl.py # Fixed Take Profit / Stop Loss
+│ │ ├── trailing_stop.py # Dynamic trailing stop
+│ │ ├── time_based.py # Exit after N candles
+│ │ └── atr_stop.py # ATR-based stop
 │ │
-│ └── 📁 risk/ # Gestione rischio - Quanto capitale
+│ └── 📁 risk/ # Risk management - How much capital
 │ ├── init.py
 │ ├── base_risk.py
-│ ├── fixed_percent.py # Rischia X% per trade
-│ └── kelly_criterion.py # Criterio di Kelly
+│ ├── fixed_percent.py # Risk X% per trade
+│ └── kelly_criterion.py # Kelly Criterion
 │
-├── 📁 indicators/ # CALCOLATORI indicatori (estensibili)
+├── 📁 indicators/ # INDICATOR calculators (extensible)
 │ ├── init.py
-│ ├── base_calculator.py # Classe base per indicatori
+│ ├── base_calculator.py # Base class for indicators
 │ ├── sma_calculator.py # Simple Moving Average
 │ ├── ema_calculator.py # Exponential Moving Average
 │ ├── rsi_calculator.py # Relative Strength Index
@@ -70,67 +70,77 @@ trading_framework/
 │ ├── cvd_calculator.py # Cumulative Volume Delta
 │ └── atr_calculator.py # Average True Range
 │
-├── 📁 utils/ # Utilities e helper functions
+├── 📁 utils/ # Utilities and helper functions
 │ ├── init.py
-│ ├── time_utils.py # Conversione timeframe, calcoli date
-│ ├── file_utils.py # Gestione file parquet, cache
-│ ├── validation.py # Validazione config e dati
-│ └── logging_config.py # Configurazione logging strutturato
+│ ├── time_utils.py # Timeframe conversion, date calculations
+│ ├── file_utils.py # Parquet file management, cache
+│ ├── validation.py # Config and data validation
+│ └── logging_config.py # Structured logging configuration
 │
-├── 📁 reports/ # Generazione report e visualizzazione
+├── 📁 reports/ # Report generation and visualization
 │ ├── init.py
 │ ├── metrics_calculator.py # Sharpe, drawdown, win rate, etc.
-│ ├── plotter.py # Creazione grafici (equity, drawdown)
-│ ├── html_report.py # Generazione report HTML
-│ └── 📁 templates/ # Template per report
+│ ├── plotter.py # Chart creation (equity, drawdown)
+│ ├── html_report.py # HTML report generation
+│ └── 📁 templates/ # Report templates
 │ └── report_template.html
 │
-├── 📁 scripts/ # Script standalone per operazioni
-│ ├── download_data.py # Scarica dati da exchange
-│ ├── calculate_indicators.py # Calcola tutti indicatori (batch)
-│ ├── cleanup_cache.py # Pulisce cache vecchia
-│ └── optimize_strategy.py # Ottimizzazione parametri (futuro)
+├── 📁 scripts/ # Standalone scripts for operations
+│ ├── download_data.py # Downloads data from exchange
+│ ├── calculate_indicators.py # Calculates all indicators (batch)
+│ ├── cleanup_cache.py # Cleans old cache
+│ └── optimize_strategy.py # Parameter optimization (future)
 │
-├── 📁 ui/ # INTERFACCIA WEB (futuro, opzionale)
+├── 📁 ui/ # WEB INTERFACE (future, optional)
 │ ├── init.py
-│ ├── app.py # Streamlit/Dash app principale
-│ ├── 📁 components/ # Componenti UI riutilizzabili
+│ ├── app.py # Main Streamlit/Dash app
+│ ├── 📁 components/ # Reusable UI components
 │ │ ├── strategy_builder.py
 │ │ ├── param_controls.py
 │ │ └── results_display.py
-│ └── 📁 assets/ # Risorse statiche
+│ └── 📁 assets/ # Static resources
 │ └── style.css
 │
-├── 📄 config.yaml # CONFIGURAZIONE PRINCIPALE (modificare sempre qui)
-├── 📄 backtest.py # PUNTO DI INGRESSO principale
-├── 📄 requirements.txt # Dipendenze Python (pandas, pyarrow, talib, yaml)
-├── 📄 .gitignore # Ignora data/, pycache/, .parquet
-├── 📄 README.md # Documentazione utente
-└── 📄 .env.example # Variabili d'ambiente esempio (API keys)
+├── 📄 config.yaml # MAIN CONFIGURATION (always modify here)
+├── 📄 backtest.py # MAIN ENTRY POINT
+├── 📄 requirements.txt # Python dependencies (pandas, pyarrow, talib, yaml)
+├── 📄 .gitignore # Ignores data/, pycache/, .parquet
+├── 📄 README.md # User documentation
+└── 📄 .env.example # Example environment variables (API keys)
 ```
 
+## 📄 File Naming Conventions
 
-## 📄 Convenzioni di Nomenclatura File
+Data Files:
+Raw data: {SYMBOL}_{TIMEFRAME}.parquet (e.g., BTCUSDT_1m.parquet)
 
-### File Dati:
-- **Raw data**: `{SYMBOL}_{TIMEFRAME}.parquet` (es: `BTCUSDT_1m.parquet`)
-- **Indicator cache**: `{INDICATOR}_{PARAMS}_{TF}.parquet` (es: `sma_20_1m.parquet`)
-- **Journal**: `{SYMBOL}_{ENTRY_STRAT}_{EXIT_STRAT}_{TIMESTAMP}.parquet`
-- **Results**: `{SYMBOL}_{ENTRY_STRAT}_{EXIT_STRAT}_{TIMESTAMP}/`
+Indicator cache: {INDICATOR}_{PARAMS}_{TF}.parquet (e.g., sma_20_1m.parquet)
 
-### File Codice:
-- **Strategie entry**: `strategies/entry/{nome_strategia}.py`
-- **Strategie exit**: `strategies/exit/{nome_strategia}.py`
-- **Indicatori**: `indicators/{nome_indicatore}_calculator.py`
+Journal: {SYMBOL}_{ENTRY_STRAT}_{EXIT_STRAT}_{TIMESTAMP}.parquet
 
-## 🔧 Dipendenze Principali
-- `pandas` - Manipolazione dati
-- `pyarrow` - Lettura/scrittura parquet
-- `TA-Lib` - Indicator calculation
-- `PyYAML` - Lettura configurazione
-- `numpy` - Calcoli numerici
+Results: {SYMBOL}_{ENTRY_STRAT}_{EXIT_STRAT}_{TIMESTAMP}/
 
-## 🚫 Cosa NON è Incluso
-- Database complessi (solo file parquet)
-- Microservizi (monolito organizzato)
-- Over-engineering (solo ciò che serve)
+Code Files:
+Entry strategies: strategies/entry/{strategy_name}.py
+
+Exit strategies: strategies/exit/{strategy_name}.py
+
+Indicators: indicators/{indicator_name}_calculator.py
+
+## 🔧 Main Dependencies
+pandas - Data manipulation
+
+pyarrow - Parquet read/write
+
+TA-Lib - Indicator calculation
+
+PyYAML - Configuration reading
+
+numpy - Numerical calculations
+
+## 🚫 What's NOT Included
+Complex databases (only parquet files)
+
+Microservices (organized monolith)
+
+Over-engineering (only what's needed)

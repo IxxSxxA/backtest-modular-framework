@@ -24,15 +24,6 @@ class PriceAboveSMA(BaseEntryStrategy):
         logger.info(f"Initialized PriceAboveSMA: period={self.sma_period}, lookback={self.lookback}")
     
     def should_enter(self, data) -> bool:
-        """
-        Check if current close price is above SMA.
-        
-        Args:
-            data: DataWindow object
-            
-        Returns:
-            True if close > SMA for lookback candles
-        """
         # Check if we have required indicators
         if self.sma_column not in data:
             logger.error(f"Required indicator '{self.sma_column}' not found in data")
@@ -41,18 +32,22 @@ class PriceAboveSMA(BaseEntryStrategy):
         try:
             current_close = data['close'][0]
             current_sma = data[self.sma_column][0]
-
-            if self.lookback > 0:
-                for i in range(1, self.lookback + 1):
-                    prev_close = data['close'][-i]
-                    prev_sma = data[self.sma_column][-i]
             
-            # Simple condition: price above SMA
-            if current_close > current_sma and prev_close < prev_sma:  # ← Crossover!
-                logger.info(f"Entry signal: Current price {current_close:.2f} > {current_sma:.2f} || Prev price {prev_close:.2f} < {prev_sma:.2f}")
+            # Check crossover: current price above SMA AND previous price below SMA
+            prev_close = data['close'][-1]  # Candela immediatamente precedente
+            prev_sma = data[self.sma_column][-1]
+            
+            # Crossover detection
+            if current_close > current_sma and prev_close <= prev_sma:
+                logger.info(f"Entry signal: Crossover detected - {prev_close:.2f}≤{prev_sma:.2f} → {current_close:.2f}>{current_sma:.2f}")
                 return True
             
-            return False                        
+            # Optional: Check for lookback confirmation
+            if self.lookback > 1:
+                # Verify price stayed above SMA for lookback periods
+                for i in range(1, min(self.lookback, len(data))):
+                    if data['close'][-i] <= data[self.sma_column][-i]:
+                        return False
             
             return False
             

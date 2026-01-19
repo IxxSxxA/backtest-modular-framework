@@ -31,15 +31,15 @@ class FixedPercent(BaseRiskManager):
             float: Importo monetario da rischiare
         """
         # SEMPLICE: X% del capitale
-        investment_amount = capital * self.risk_per_trade  # 200€
+        risk_amount = capital * self.risk_per_trade  # 200€
         
         # 2. Converti in QUANTITÀ
-        quantity = investment_amount / entry_price  # 200 / 109.9963 = 1.818 unità
+        quantity = risk_amount / entry_price  # 200 / 109.9963 = 1.818 unità
         
-        logger.info(f"Position Value: ${investment_amount:.2f} at ${entry_price} ->  {quantity:.4f} units")
+        logger.info(f"Risk Amount: ${risk_amount:.2f} at ${entry_price} ->  {quantity:.4f} units")
         
         # return quantity  # Restituisce QUANTITÀ
-        return investment_amount
+        return risk_amount
     
     def can_trade(self, capital, current_drawdown, market_conditions=None):
         """

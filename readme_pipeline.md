@@ -1,206 +1,195 @@
-# PIPELINE ESECUTIVA - Flusso di Backtest
+# EXECUTION PIPELINE - Backtest Flow
 
-
-### ## 🎯 SIMPLEX RISULTATO FINALE
-```
-Backtest:
-  data_loader → DataFrame (OHLCV)
-  indicator_manager → DataFrame + sma_100
-  engine → usa DataFrame
-  engine.run() → results['data'] = DataFrame ✅
-
-Journal Writer:
-  Salva results['data'] → data_with_indicators.parquet ✅
-
-Plotter:
-  Carica data_with_indicators.parquet
-  Usa column='sma_100' dal DataFrame
-  Plot corretto! ✅
-```
-
-
-
-## 🔄 FLUSSO COMPLETO (Single o Multi-Asset)
+## 🔄 COMPLETE FLOW (Single or Multi-Asset)
 
 ```txt
-[UTENTE] → python backtest.py
+[USER] → python backtest.py
 ↓
-[FASE 1: CONFIGURAZIONE]
-├─ Legge config.yaml
-├─ Valida tutti i parametri
-├─ Carica classi strategia (entry/exit)
-└─ Se errore → STOP con messaggio chiaro
+[PHASE 1: CONFIGURATION]
+├─ Reads config.yaml
+├─ Validates all parameters
+├─ Loads strategy classes (entry/exit)
+└─ If error → STOP with clear message
 ↓
-[FASE 2: PREPARAZIONE DATI] (Per ogni symbol in config['symbols'])
-├─ Carica: data/raw/{SYMBOL}{TIMEFRAME}.parquet
-├─ Filtra date (start/end da config)
-├─ Calcola/recupera indicatori (cache intelligente)
-│ ├─ Se esiste: data/indicators/{SYMBOL}/{INDICATOR}{PARAMS}.parquet → carica
-│ └─ Se non esiste: calcola → salva cache → carica
-└─ Merge: OHLCV + tutti indicatori → dataset completo
+[PHASE 2: DATA PREPARATION] (For each symbol in config['symbols'])
+├─ Loads: data/raw/{SYMBOL}{TIMEFRAME}.parquet
+├─ Filters dates (start/end from config)
+├─ Calculates/retrieves indicators (intelligent cache)
+│ ├─ If exists: data/indicators/{SYMBOL}/{INDICATOR}{PARAMS}.parquet → load
+│ └─ If doesn't exist: calculate → save cache → load
+└─ Merge: OHLCV + all indicators → complete dataset
 ↓
-[FASE 3: INIZIALIZZAZIONE ENGINE]
-├─ Crea BacktestEngine con:
-│ ├─ Dataset completo
-│ ├─ Entry strategy (da config)
-│ ├─ Exit strategy (da config)
-│ ├─ Parametri rischio/commissioni
-│ └─ Stato iniziale (capitale, posizioni)
-└─ Inizializza journal writer
+[PHASE 3: ENGINE INITIALIZATION]
+├─ Creates BacktestEngine with:
+│ ├─ Complete dataset
+│ ├─ Entry strategy (from config)
+│ ├─ Exit strategy (from config)
+│ ├─ Risk/commission parameters
+│ └─ Initial state (capital, positions)
+└─ Initializes journal writer
 ↓
-[FASE 4: BACKTEST LOOP] (Per ogni candela, timestamp ordinati)
+[PHASE 4: BACKTEST LOOP] (For each candle, ordered timestamps)
 │
-├─ [4.1: ENTRY CHECK] Se NON in posizione:
-│ ├─ Chiama: entry_strategy.should_enter(current_data_window)
-│ └─ Se True → Engine.enter_position():
-│ ├─ Calcola position size (risk manager)
-│ ├─ Registra entry price/time
-│ ├─ Aggiorna stato portfolio
-│ └─ Log: "ENTER at {price}"
+├─ [4.1: ENTRY CHECK] If NOT in position:
+│ ├─ Calls: entry_strategy.should_enter(current_data_window)
+│ └─ If True → Engine.enter_position():
+│ ├─ Calculates position size (risk manager)
+│ ├─ Records entry price/time
+│ ├─ Updates portfolio state
+│ └─ Logs: "ENTER at {price}"
 │
-├─ [4.2: EXIT CHECK] Se IN posizione:
-│ ├─ Chiama: exit_strategy.should_exit(current_data_window, entry_price)
-│ └─ Se True → Engine.exit_position():
-│ ├─ Calcola P&L realizzato
-│ ├─ Applica commissioni
-│ ├─ Aggiorna capitale
-│ ├─ Registra trade completo
-│ └─ Log: "EXIT at {price}, P&L: {X}%"
+├─ [4.2: EXIT CHECK] If IN position:
+│ ├─ Calls: exit_strategy.should_exit(current_data_window, entry_price)
+│ └─ If True → Engine.exit_position():
+│ ├─ Calculates realized P&L
+│ ├─ Applies commissions
+│ ├─ Updates capital
+│ ├─ Records complete trade
+│ └─ Logs: "EXIT at {price}, P&L: {X}%"
 │
-└─ [4.3: JOURNAL WRITING] Per ogni candela:
-├─ Scrive riga in: data/journals/{SYMBOL}{STRAT}{TIMESTAMP}.parquet
-└─ Campi: timestamp, symbol, price, signals, position, capital, indicators*
+└─ [4.3: JOURNAL WRITING] For each candle:
+├─ Writes row to: data/journals/{SYMBOL}{STRAT}{TIMESTAMP}.parquet
+└─ Fields: timestamp, symbol, price, signals, position, capital, indicators*
 ↓
-[FASE 5: POST-PROCESSING]
-├─ Chiudi eventuali posizioni aperte (alla fine periodo)
-├─ Calcola metriche performance:
+[PHASE 5: POST-PROCESSING]
+├─ Closes any open positions (end of period)
+├─ Calculates performance metrics:
 │ ├─ Total Return %
 │ ├─ Sharpe Ratio
 │ ├─ Max Drawdown %
 │ ├─ Win Rate %
 │ ├─ Profit Factor
-│ └─ Numero trades
-└─ Genera output strutturato
+│ └─ Number of trades
+└─ Generates structured output
 ↓
-[FASE 6: OUTPUT & VISUALIZATION]
-├─ Stampa summary a schermo
-├─ Salva file risultati:
+[PHASE 6: OUTPUT & VISUALIZATION]
+├─ Prints summary to screen
+├─ Saves result files:
 │ ├─ Trades CSV: results/{SYMBOL}{STRAT}{TIMESTAMP}/trades.csv
 │ ├─ Equity curve: results/{SYMBOL}{STRAT}{TIMESTAMP}/equity.png
 │ ├─ Report HTML: results/{SYMBOL}{STRAT}{TIMESTAMP}/report.html
 │ └─ Metrics JSON: results/{SYMBOL}{STRAT}{TIMESTAMP}/metrics.json
-└─ Se UI attiva → aggiorna dashboard live
+└─ If UI active → updates live dashboard
 ↓
-[FINE] ✅ Backtest completato
+[END] ✅ Backtest completed
 ```
 
-## ⏱️ TIMELINE TIPICA (525k candele 1m = 1 anno)
-
-### Prima Esecuzione (indicatori da calcolare):
+## ⏱️ TYPICAL TIMELINE (525k 1m candles = 1 year)
+First Execution (indicators to calculate):
 T+0s: python backtest.py
 T+1s: Config loaded ✓
 T+2s: Data loaded (525k candles) ✓
-T+2-60s: Calculating indicators... (dipende da quanti e complessità)
+T+2-60s: Calculating indicators... (depends on quantity and complexity)
 T+60s: Starting backtest loop...
 T+180s: [===============>] 100% (2,900 candles/sec)
 T+181s: Calculating metrics...
 T+182s: Generating plots...
 T+185s: ✅ Backtest completed!
 
-
-
-### Esecuzioni Successive (tutto in cache):
+Subsequent Executions (everything cached):
 T+0s: python backtest.py
 T+1s: Config loaded ✓
 T+2s: Data + indicators from cache ✓
 T+3s: Backtest loop (525k candles in 2s)
-T+5s: ✅ Backtest completed! (5 secondi totali)
+T+5s: ✅ Backtest completed! (5 seconds total)
 
-
-
-## 🎯 INPUT/OUTPUT CHIAVE
-
-### INPUT (config.yaml):
-
-```yaml
-symbols: ["BTCUSDT", "ETHUSDT"]      # Assets da testare
-timeframe: "1m"                      # TF del motore
+## 🎯 KEY INPUT/OUTPUT
+INPUT (config.yaml):
+yaml
+symbols: ["BTCUSDT", "ETHUSDT"]      # Assets to test
+timeframe: "1m"                      # Engine timeframe
 strategy:
   entry:
     name: "ema_cross"               # File: strategies/entry/ema_cross.py
-    params: {fast: 20, slow: 50}    # Parametri strategia
+    params: {fast: 20, slow: 50}    # Strategy parameters
   exit:
     name: "fixed_tp_sl"             # File: strategies/exit/fixed_tp_sl.py
     params: {tp: 0.05, sl: 0.02}    # TP 5%, SL 2%
-indicators:                         # Lista indicatori richiesti
+indicators:                         # List of required indicators
   - sma_20_1m
   - rsi_14_1m
   - ema_50_4h
-```
 
-### OUTPUT (per symbol):
-
+OUTPUT (per symbol):
 ```text
 data/journals/BTCUSDT_ema_cross_fixed_tp_sl_20250116_143025.parquet
-├── 525,600 righe (1 riga per candela 1m)
-├── Colonne: timestamp, symbol, price, entry_signal, exit_signal, 
+├── 525,600 rows (1 row per 1m candle)
+├── Columns: timestamp, symbol, price, entry_signal, exit_signal, 
 │           in_position, position_size, capital, drawdown, 
-│           ema_fast, ema_slow, rsi, ... (tutti indicatori)
-└── Formato: Parquet (veloce, compresso)
+│           ema_fast, ema_slow, rsi, ... (all indicators)
+└── Format: Parquet (fast, compressed)
 
 results/BTCUSDT_ema_cross_fixed_tp_sl_20250116_143025/
-├── trades.csv           # Lista trade con P&L
-├── equity.png          # Grafico equity curve
-├── drawdown.png        # Grafico drawdown
-├── report.html         # Report HTML interattivo
-└── metrics.json        # Metriche in formato JSON
+├── trades.csv           # Trade list with P&L
+├── equity.png          # Equity curve chart
+├── drawdown.png        # Drawdown chart
+├── report.html         # Interactive HTML report
+└── metrics.json        # Metrics in JSON format
 ```
 
-## 🔄 CACHE INTELLIGENTE
-
+## 🔄 INTELLIGENT CACHE
 Indicator calculation flow:
-1. Riceve richiesta: "sma_20_1m" per "BTCUSDT"
-2. Cerca: data/indicators/BTCUSDT/sma_20_1m.parquet
-3. Se TROVATO: carica e restituisce (instant)
-4. Se NON TROVATO:
-   ├─ Calcola SMA(20) su dati 1m
-   ├─ Salva: data/indicators/BTCUSDT/sma_20_1m.parquet
-   └─ Restituisce risultato
-5. Cache valida finché dati raw non cambiano
-   (controllo tramite hash o timestamp ultima modifica)
 
+Receives request: "sma_20_1m" for "BTCUSDT"
 
-## 🚨 GESTIONE ERRORI
+Searches: data/indicators/BTCUSDT/sma_20_1m.parquet
 
-Errori comuni e recovery:
-1. File dati non trovato → "Esegui scripts/download_data.py"
-2. Strategia non trovata → "Crea strategies/entry/{nome}.py"
-3. Indicatore non implementato → "Crea indicators/{nome}_calculator.py"
-4. Cache corrupted → "Esegui scripts/cleanup_cache.py"
-5. Config invalido → Messaggio con campo problematico
+```txt
+If FOUND: loads and returns (instant)
+If NOT FOUND:
+├─ Calculates SMA(20) on 1m data
+├─ Saves: data/indicators/BTCUSDT/sma_20_1m.parquet
+└─ Returns result
+```
 
+Cache valid until raw data changes
+(check via hash or last modified timestamp)
 
-## 📈 SCALABILITÀ
+## 🚨 ERROR HANDLING
+Common errors and recovery:
 
-Da Single a Multi-Asset:
-1. Single: symbols: ["BTCUSDT"]
-2. Multi: symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
-3. Cross-asset: (futuro) strategie che confrontano assets
+Data file not found → "Run scripts/download_data.py"
 
-Da 1 a N Timeframe:
-1. Base: timeframe: "1m"
-2. Multi-TF: indicatori su TF diversi (sma_20_5m, ema_50_1h)
-3. Strategie multi-TF: entry su 5m, exit su 15m
+Strategy not found → "Create strategies/entry/{name}.py"
 
+Indicator not implemented → "Create indicators/{name}_calculator.py"
 
-## 🎨 VISUALIZATION PIPELINE (Futuro)
+Cache corrupted → "Run scripts/cleanup_cache.py"
 
+Invalid config → Message with problematic field
+
+## 📈 SCALABILITY
+From Single to Multi-Asset:
+
+Single: symbols: ["BTCUSDT"]
+
+Multi: symbols: ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+
+Cross-asset: (future) strategies comparing assets
+
+From 1 to N Timeframes:
+
+Base: timeframe: "1m"
+
+Multi-TF: indicators on different TFs (sma_20_5m, ema_50_1h)
+
+Multi-TF strategies: entry on 5m, exit on 15m
+
+## 🎨 VISUALIZATION PIPELINE (Future)
 Journal Parquet → Plotter → Visualizations:
-1. Legge: data/journals/{SYMBOL}_{STRAT}_{TIMESTAMP}.parquet
-2. Aggrega al TF per plotting (1m → 1h per equity curve)
-3. Genera:
-   - Equity curve con drawdown
-   - Entry/exit points su grafico prezzi
-   - Distribuzione P&L
-   - Heatmap performance temporale
-4. Output: PNG, HTML interattivo, PDF report
+
+Reads: data/journals/{SYMBOL}{STRAT}{TIMESTAMP}.parquet
+
+Aggregates to TF for plotting (1m → 1h for equity curve)
+
+Generates:
+
+Equity curve with drawdown
+
+Entry/exit points on price chart
+
+P&L distribution
+
+Performance heatmap over time
+
+Output: PNG, interactive HTML, PDF report
