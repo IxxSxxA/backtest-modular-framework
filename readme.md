@@ -1,9 +1,8 @@
-# TRADING FRAMEWORK - Modular Backtesting in Python
+# Modular Backtesting Framework in Python
 
 ## NOTE ON TIMEFRAME AND INDICATOR CALCULATION
 
-**Timeframe Approach**
-This framework adopts a pragmatic approach to calculating indicators across multiple timeframes:
+This framework adopts a pragmatic approach to calculating indicators across multiple timeframes.
 
 ### Fundamental Principle: Backtest-Production Consistency
 - **Base data**: All backtesting is performed on 1-minute (1m TF) data
