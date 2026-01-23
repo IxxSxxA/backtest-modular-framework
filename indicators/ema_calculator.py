@@ -7,38 +7,34 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 
 
-class SMACalculator(BaseCalculator):
+class EMACalculator(BaseCalculator):
     """
-    Simple Moving Average calculator with multi-timeframe support.
+    Exponential Moving Average calculator with multi-timeframe support.
 
     Parameters:
-        period: Number of periods for SMA
+        period: Number of periods for EMA
         column: Price column to use (default: 'close')
         tf: Target timeframe for calculation (e.g., '1h', '4h', '1d')
-            If not specified, calculates on 1m data
 
     Calculation Logic:
-        - If tf='1m' or not specified: SMA calculated directly on 1m data
-        - If tf='4h':
-          1. Resample 1m data to 4h OHLC
-          2. Calculate SMA on resampled 4h data
-          3. Forward-fill values to 1m (constant for 240 minutes)
-
-    Cache Note:
-        SMA 200 on 4h has different cache key from SMA 200 on 1m
+        - If tf='1m' or not specified: EMA calculated directly on 1m data
+        - If tf='1h':
+          1. Resample 1m data to 1h OHLC
+          2. Calculate EMA on resampled 1h data
+          3. Forward-fill values to 1m (constant for 60 minutes)
     """
 
     def calculate(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.Series:
         """
-        Calculate Simple Moving Average with timeframe support.
+        Calculate Exponential Moving Average with timeframe support.
         """
         # Get parameters
-        period = int(params.get("period", 20))
+        period = int(params.get("period", 14))
         price_column = str(params.get("column", "close"))
         target_tf = params.get("tf", "1m")
 
         if period <= 0:
-            raise ValueError(f"Invalid period for SMA: {period}")
+            raise ValueError(f"Invalid period for EMA: {period}")
 
         if price_column not in data.columns:
             available = list(data.columns)
@@ -48,43 +44,37 @@ class SMACalculator(BaseCalculator):
             )
 
         logger.info(
-            f"Calculating SMA({period}) on {price_column} "
+            f"Calculating EMA({period}) on {price_column} "
             f"for {self.symbol} (target TF: {target_tf})"
         )
 
         # Decide calculation method based on target timeframe
         if target_tf == "1m":
             # Direct calculation on 1m data
-            sma_values = self._calculate_sma_direct(data, price_column, period)
-            sma_values.name = f"sma_{period}_1m"
+            ema_values = self._calculate_ema_direct(data, price_column, period)
+            ema_values.name = f"ema_{period}_1m"
         else:
             # Calculate on higher timeframe, then forward-fill to 1m
-            sma_values = self._calculate_sma_resampled(
+            ema_values = self._calculate_ema_resampled(
                 data, price_column, period, target_tf
             )
-            sma_values.name = f"sma_{period}_{target_tf}"
+            ema_values.name = f"ema_{period}_{target_tf}"
 
-        return sma_values
+        return ema_values
 
-    def _calculate_sma_direct(
+    def _calculate_ema_direct(
         self, data: pd.DataFrame, price_column: str, period: int
     ) -> pd.Series:
-        """Calculate SMA directly on 1m data."""
-        sma = data[price_column].rolling(window=period, min_periods=1).mean()
+        """Calculate EMA directly on 1m data."""
+        ema = data[price_column].ewm(span=period, min_periods=1, adjust=False).mean()
 
-        # For the first period-1 values, use expanding mean
-        if period > 1:
-            sma.iloc[: period - 1] = (
-                data[price_column].expanding(min_periods=1).mean().iloc[: period - 1]
-            )
+        return ema
 
-        return sma
-
-    def _calculate_sma_resampled(
+    def _calculate_ema_resampled(
         self, data: pd.DataFrame, price_column: str, period: int, target_tf: str
     ) -> pd.Series:
         """
-        Calculate SMA on resampled data, then forward-fill to 1m.
+        Calculate EMA on resampled data, then forward-fill to 1m.
         """
         # Get minutes per candle for target timeframe
         if target_tf not in self.TF_TO_MINUTES:
@@ -99,24 +89,19 @@ class SMACalculator(BaseCalculator):
         logger.debug(f"Resampling 1m → {target_tf} ({minutes_per_candle} minutes)")
         resampled = self._resample_to_timeframe(data, minutes_per_candle)
 
-        # 2. Calculate SMA on resampled data
-        # Note: Use 'close' price from resampled OHLC
-        sma_resampled = resampled["close"].rolling(window=period, min_periods=1).mean()
+        # 2. Calculate EMA on resampled data
+        ema_resampled = (
+            resampled["close"].ewm(span=period, min_periods=1, adjust=False).mean()
+        )
 
-        # Handle first period-1 values
-        if period > 1:
-            sma_resampled.iloc[: period - 1] = (
-                resampled["close"].expanding(min_periods=1).mean().iloc[: period - 1]
-            )
-
-        # 3. Forward-fill SMA values to match original 1m index
-        sma_1m = self._forward_fill_to_1m(
-            indicator_series=sma_resampled,
+        # 3. Forward-fill EMA values to match original 1m index
+        ema_1m = self._forward_fill_to_1m(
+            indicator_series=ema_resampled,
             original_index=data.index,
             minutes_per_candle=minutes_per_candle,
         )
 
-        return sma_1m
+        return ema_1m
 
     def get_required_columns(self) -> list:
         """Return list of required columns from input data."""

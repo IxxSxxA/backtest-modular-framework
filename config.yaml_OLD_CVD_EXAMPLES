@@ -1,0 +1,67 @@
+# Esempi di configurazione CVD con reset periodico
+strategy:
+  indicators:
+    # CVD standard (cumulativo dall'inizio)
+    - name: "cvd_total"
+      type: "cvd"
+      params:
+        use_quote: false
+        reset_period_minutes: 0  # Nessun reset
+      column_name: "cvd_total_base"
+    
+    # CVD giornaliero (reset ogni 24h)
+    - name: "cvd_daily"
+      type: "cvd"
+      params:
+        use_quote: false
+        reset_period_minutes: 1440  # 24h × 60min = 1440
+      column_name: "cvd_daily"
+      note: "Daily CVD resets at midnight UTC"
+    
+    # CVD orario con smoothing
+    - name: "cvd_hourly_smooth"
+      type: "cvd"
+      params:
+        use_quote: true  # Usa USDT volume
+        reset_period_minutes: 60  # Reset ogni ora
+        ma_period: 20  # Smoothing a 20 periodi
+      column_name: "cvd_hourly_usdt_ma20"
+    
+    # CVD settimanale
+    - name: "cvd_weekly"
+      type: "cvd"
+      params:
+        use_quote: false
+        reset_period_minutes: 10080  # 7 giorni × 24h × 60min = 10080
+      column_name: "cvd_weekly"
+    
+    # Delta volume grezzo (non cumulativo)
+    - name: "volume_delta_raw"
+      type: "cvd"
+      params:
+        use_raw: true  # Ritorna delta, non CVD
+        use_quote: false
+        ma_period: 50  # Smoothing
+      column_name: "volume_delta_ma50"
+    
+    # Multiple CVD con timeframe diversi
+    - name: "cvd_1h"
+      type: "cvd"
+      params:
+        reset_period_minutes: 60
+        use_quote: false
+      column_name: "cvd_1h"
+    
+    - name: "cvd_4h"
+      type: "cvd"
+      params:
+        reset_period_minutes: 240
+        use_quote: false
+      column_name: "cvd_4h"
+    
+    - name: "cvd_12h"
+      type: "cvd"
+      params:
+        reset_period_minutes: 720
+        use_quote: true  # Different volume type
+      column_name: "cvd_12h_usdt"

@@ -1,229 +1,276 @@
-# backtest.py
+#!/usr/bin/env python3
+"""
+Trading Framework - Main Entry Point
+"""
 
-"""
-Main backtesting script.
-Loads config, prepares data, and runs backtest.
-"""
-import sys
-import os
 import yaml
 import logging
-import pandas as pd
-import numpy as np
-from datetime import datetime
 from pathlib import Path
-
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pandas as pd
 
 from core.data_loader import DataLoader
 from core.indicator_manager import IndicatorManager
 from core.engine import BacktestEngine
 from core.journal_writer import JournalWriter
 
-# Strategy factories
+# Import strategy components
 from strategies.entry.price_above_sma import PriceAboveSMA
 from strategies.exit.hold_bars import HoldBars
 from strategies.exit.fixed_tp_sl import FixedTPSL
 from strategies.risk.fixed_percent import FixedPercent
 
-
-def setup_logging(level=logging.INFO):
-    """Configure logging."""
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%H:%M:%S',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler('backtest.log')
-        ]
-    )
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
-def load_config(config_path: str = 'config.yaml') -> dict:
-    """Load and validate configuration."""
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-    
-    with open(config_path, 'r') as f:
+def load_config(config_path: str = "config.yaml") -> dict:
+    """Load configuration from YAML file."""
+    with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    
-    # Basic validation
-    required_sections = ['engine', 'data', 'strategy']
-    for section in required_sections:
-        if section not in config:
-            raise ValueError(f"Missing required config section: {section}")
-    
     return config
 
 
-def create_entry_strategy(config: dict):
-    """Create entry strategy instance from config."""
-    entry_config = config['strategy']['entry']
-    strategy_name = entry_config['name']
-    params = entry_config.get('params', {})
-    
-    # Strategy mapping (will be auto-discovered in future phases)
-    strategy_map = {
-        'price_above_sma': PriceAboveSMA,
+def resample_to_timeframe(df, target_tf: str):
+    """
+    Resample 1m data to target timeframe using forward-fill.
+
+    Args:
+        df: DataFrame with 1m OHLCV data (DatetimeIndex)
+        target_tf: Target timeframe (e.g., "4h", "1h", "15m")
+
+    Returns:
+        Resampled DataFrame
+    """
+    logger.info(f"Resampling from 1m to {target_tf}...")
+
+    tf_map = {
+        "1m": "1T",
+        "5m": "5T",
+        "15m": "15T",
+        "30m": "30T",
+        "1h": "1h",
+        "2h": "2h",
+        "3h": "3h",
+        "4h": "4h",
+        "6h": "6h",
+        "8h": "8h",
+        "12h": "12h",
+        "1d": "1D",
     }
-    
-    if strategy_name not in strategy_map:
-        raise ValueError(
-            f"Entry strategy '{strategy_name}' not found. "
-            f"Available: {list(strategy_map.keys())}"
+
+    pandas_tf = tf_map.get(target_tf)
+    if not pandas_tf:
+        raise ValueError(f"Unsupported timeframe: {target_tf}")
+
+    # Use label='left', closed='left' to align with candlestick boundaries
+    resampled = df.resample(pandas_tf, label="left", closed="left").agg(
+        {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    )
+
+    # Forward-fill NaN values
+    resampled = resampled.ffill()
+
+    # Drop any remaining NaN rows
+    original_len = len(resampled)
+    resampled = resampled.dropna()
+
+    if len(resampled) < original_len:
+        logger.warning(
+            f"Dropped {original_len - len(resampled)} incomplete {target_tf} candles at start"
         )
-    
-    StrategyClass = strategy_map[strategy_name]
-    return StrategyClass(params)
+
+    logger.info(f"Resampled: {len(df)} rows (1m) → {len(resampled)} rows ({target_tf})")
+
+    return resampled
 
 
-def create_exit_strategy(config: dict):
-    """Create exit strategy instance from config."""
-    exit_config = config['strategy']['exit']
-    strategy_name = exit_config['name']
-    params = exit_config.get('params', {})
-    
-    # Strategy mapping (will be auto-discovered in future phases)
-    strategy_map = {
-        'hold_bars': HoldBars,
-        'fixed_tp_sl': FixedTPSL,
-    }
-    
-    if strategy_name not in strategy_map:
-        raise ValueError(
-            f"Exit strategy '{strategy_name}' not found. "
-            f"Available: {list(strategy_map.keys())}"
-        )
-    
-    StrategyClass = strategy_map[strategy_name]
-    return StrategyClass(params)
+def create_strategy_components(config: dict):
+    """
+    Factory function to create entry, exit, and risk strategies.
 
+    Args:
+        config: Full configuration dictionary
 
-def create_risk_manager(config: dict):
-    """Create risk manager instance from config."""
+    Returns:
+        Tuple of (entry_strategy, exit_strategy, risk_manager)
+    """
+    strategy_config = config["strategy"]
 
-    
-    risk_config = config['strategy']['risk']
-    strategy_name = risk_config['name']
-    params = risk_config.get('params', {})
-    
-    # Risk manager mapping
-    risk_map = {
-        'fixed_percent': FixedPercent,
-    }
-    
-    if strategy_name not in risk_map:
-        raise ValueError(
-            f"Risk manager '{strategy_name}' not found. "
-            f"Available: {list(risk_map.keys())}"
-        )
-    
-    StrategyClass = risk_map[strategy_name]
-    return StrategyClass(params)
+    # 1. Entry Strategy
+    entry_config = strategy_config["entry"]
+    entry_name = entry_config["name"]
+    entry_params = entry_config.get("params", {})
 
+    if entry_name == "price_above_sma":
+        entry_strategy = PriceAboveSMA(entry_params)
+    else:
+        raise ValueError(f"Unknown entry strategy: {entry_name}")
 
-def prepare_data(config: dict) -> pd.DataFrame:
-    """Load data and calculate indicators."""
-    logger = logging.getLogger(__name__)
-    
-    # Load data
-    logger.info("Loading data...")
-    data_loader = DataLoader(config)
-    data = data_loader.load_single_symbol(config['data']['symbols'][0])
-    
-    # Calculate indicators
-    logger.info("Calculating indicators...")
-    indicator_manager = IndicatorManager()
-    
-    if 'indicators' in config:
-        data = indicator_manager.calculate_all_indicators(
-            data=data,
-            indicator_configs=config['indicators'],
-            symbol=config['data']['symbols'][0],
-            timeframe=config['data']['timeframe']
-        )
-    
-    logger.info(f"Data prepared: {len(data):,} rows, {len(data.columns)} columns")
-    return data
+    # 2. Exit Strategy
+    exit_config = strategy_config["exit"]
+    exit_name = exit_config["name"]
+    exit_params = exit_config.get("params", {})
+
+    if exit_name == "hold_bars":
+        exit_strategy = HoldBars(exit_params)
+    elif exit_name == "fixed_tp_sl":
+        exit_strategy = FixedTPSL(exit_params)
+    else:
+        raise ValueError(f"Unknown exit strategy: {exit_name}")
+
+    # 3. Risk Manager
+    risk_config = strategy_config.get("risk", {})
+    risk_name = risk_config.get("name", "fixed_percent")
+    risk_params = risk_config.get("params", {})
+
+    if risk_name == "fixed_percent":
+        risk_manager = FixedPercent(risk_params)
+    else:
+        raise ValueError(f"Unknown risk manager: {risk_name}")
+
+    logger.info(f"✅ Created strategies:")
+    logger.info(f"   Entry:  {entry_strategy}")
+    logger.info(f"   Exit:   {exit_strategy}")
+    logger.info(f"   Risk:   {risk_manager.name}")
+
+    return entry_strategy, exit_strategy, risk_manager
 
 
 def main():
-    """Main backtest execution."""
-    print("\n" + "="*60)
-    print("TRADING FRAMEWORK - Backtest Engine")
-    print("="*60)
-    
-    try:
-        # Setup
-        setup_logging()
-        logger = logging.getLogger(__name__)
-        
-        # Load config
-        logger.info("Loading configuration...")
-        config = load_config()
-        
-        print(f"\n📋 Configuration:")
-        print(f"  Symbol: {config['data']['symbols'][0]}")
-        print(f"  Timeframe: {config['data']['timeframe']}")
-        print(f"  Initial Capital: ${config['engine']['initial_capital']:,.2f}")
-        print(f"  Commission: {config['engine']['commission']*100:.2f}%")
-        print(f"  Entry Strategy: {config['strategy']['entry']['name']}")
-        print(f"  Exit Strategy: {config['strategy']['exit']['name']}")
-        
-        if 'risk' in config['strategy']:
-            risk_params = config['strategy']['risk']['params']
-            risk_pct = risk_params.get('risk_per_trade', 0.02) * 100
-            print(f"  Risk Manager: {config['strategy']['risk']['name']} ({risk_pct:.1f}% risk per trade)")
-        
-        # Prepare data
-        data = prepare_data(config)
-        
-        # Create strategies
-        logger.info("Creating strategies...")
-        entry_strategy = create_entry_strategy(config)
-        exit_strategy = create_exit_strategy(config)
-        risk_manager = create_risk_manager(config)
-        
-        # Create and run engine
-        logger.info("Initializing backtest engine...")
-        engine = BacktestEngine(
-            data=data,
-            entry_strategy=entry_strategy,
-            exit_strategy=exit_strategy,
-            risk_manager=risk_manager,
-            initial_capital=config['engine']['initial_capital'],
-            commission=config['engine']['commission'],
-            lookback_window=config['engine']['lookback_window']
-        )
-        
-        # Run backtest
-        logger.info("Running backtest...")
-        results = engine.run()
-        
-        # Print summary to console
-        engine.print_summary(results)
-        
-        # Save results using JournalWriter - FIXED: pass config parameter
-        logger.info("Saving results...")
-        journal_writer = JournalWriter(config)  # <-- QUI È IL FIX!
-        saved_files = journal_writer.save_backtest_results(results, config)
-        
-        print(f"\n💾 Results saved to: {list(saved_files.keys())}")
-        for file_type, file_path in saved_files.items():
-            if file_path:
-                print(f"  {file_type}: {file_path}")
-        
-        logger.info("Backtest completed successfully!")
-        return 0
-        
-    except Exception as e:
-        logger.error(f"Backtest failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
+    """Main execution flow."""
+
+    logger.info("=" * 60)
+    logger.info("TRADING FRAMEWORK - Starting Backtest")
+    logger.info("=" * 60)
+
+    # 1. Load configuration
+    logger.info("\n📄 Loading configuration...")
+    config = load_config("config.yaml")
+
+    strategy_tf = config["strategy"]["timeframe"]
+    symbol = config["data"]["symbols"][0]
+
+    logger.info(f"   Symbol: {symbol}")
+    logger.info(f"   Strategy TF: {strategy_tf}")
+
+    # 2. Load FULL historical data for indicators (without date filters)
+    logger.info("\n📊 Loading FULL historical 1m data for indicators...")
+    data_loader_full = DataLoader(config)
+    data_loader_full.filter_start = None  # Disable date filters
+    data_loader_full.filter_end = None
+    full_data_1m = data_loader_full.load_single_symbol(symbol)
+
+    logger.info(f"   Full 1m data: {len(full_data_1m)} rows")
+    logger.info(
+        f"   Full date range: {full_data_1m.index[0]} to {full_data_1m.index[-1]}"
+    )
+
+    # 3. Resample FULL data to strategy timeframe for indicators
+    logger.info(f"\n🔄 Resampling FULL data to {strategy_tf} for indicators...")
+    full_data_resampled = resample_to_timeframe(full_data_1m, strategy_tf)
+
+    # 4. Calculate indicators on FULL historical data
+    logger.info("\n📈 Calculating indicators on FULL historical data...")
+    indicator_manager = IndicatorManager()
+    indicator_configs = config.get("indicators", [])
+
+    data_with_indicators_full = indicator_manager.calculate_all_indicators(
+        data=full_data_resampled,  # Full historical data
+        indicator_configs=indicator_configs,
+        symbol=symbol,
+        strategy_tf=strategy_tf,
+    )
+
+    logger.info(f"   Indicators calculated on {len(data_with_indicators_full)} bars")
+
+    # 5. Load backtest window data (with date filters applied)
+    logger.info("\n📊 Loading backtest window data...")
+    data_loader_window = DataLoader(config)  # Uses date filters from config
+    window_data_1m = data_loader_window.load_single_symbol(symbol)
+
+    logger.info(f"   Window 1m data: {len(window_data_1m)} rows")
+    logger.info(
+        f"   Window date range: {window_data_1m.index[0]} to {window_data_1m.index[-1]}"
+    )
+
+    # 6. Resample window data to strategy timeframe
+    if strategy_tf != "1m":
+        logger.info(f"\n🔄 Resampling window data to {strategy_tf}...")
+        window_data_resampled = resample_to_timeframe(window_data_1m, strategy_tf)
+    else:
+        window_data_resampled = window_data_1m
+
+    # 7. Slice indicators for backtest window
+    logger.info("\n✂️  Slicing indicators for backtest window...")
+    backtest_data = data_with_indicators_full.loc[window_data_resampled.index]
+
+    logger.info(
+        f"   Using {len(backtest_data)}/{len(data_with_indicators_full)} bars for backtest"
+    )
+    logger.info(
+        f"   Backtest date range: {backtest_data.index[0]} to {backtest_data.index[-1]}"
+    )
+
+    # 8. Create strategy components
+    logger.info("\n⚙️  Creating strategy components...")
+    entry_strategy, exit_strategy, risk_manager = create_strategy_components(config)
+
+    # 9. Create backtest engine
+    logger.info("\n🚀 Creating backtest engine...")
+    engine = BacktestEngine.from_config(
+        config=config,
+        data=backtest_data,
+        entry_strategy=entry_strategy,
+        exit_strategy=exit_strategy,
+        risk_manager=risk_manager,
+    )
+
+    # 10. Run backtest
+    logger.info("\n▶️  Running backtest...")
+    logger.info("=" * 60)
+
+    results = engine.run()
+
+    logger.info("=" * 60)
+
+    # 11. Print summary
+    logger.info("\n📊 Backtest Results:")
+    engine.print_summary(results)
+
+    # DEBUG PLOTTER
+    logger.info("\n🔍 FINAL VERIFICATION - Backtest Data vs Trade:")
+    if "sma_200" in results["data"].columns:
+        # Trova il trade
+        for trade in results["trades"]:
+            if trade.get("entry_time"):
+                entry_time = pd.to_datetime(trade["entry_time"])
+                if entry_time in results["data"].index:
+                    price = results["data"].loc[entry_time, "close"]
+                    sma = results["data"].loc[entry_time, "sma_200"]
+                    logger.info(f"   Trade at {entry_time}:")
+                    logger.info(f"     Price: {price:.6f}")
+                    logger.info(f"     SMA 200: {sma:.6f}")
+                    logger.info(f"     Price > SMA?: {price > sma}")
+                    logger.info(f"     Diff: {price - sma:.6f}")
+
+    # 12. Save results
+    logger.info("\n💾 Saving results...")
+    journal_writer = JournalWriter(config)
+
+    file_paths = journal_writer.save_backtest_results(results=results, config=config)
+
+    logger.info("\n✅ Results saved:")
+    for file_type, path in file_paths.items():
+        if path:
+            logger.info(f"   {file_type}: {path}")
+
+    logger.info("\n" + "=" * 60)
+    logger.info("🎉 BACKTEST COMPLETED SUCCESSFULLY")
+    logger.info("=" * 60)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

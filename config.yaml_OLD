@@ -1,0 +1,103 @@
+# config.yaml
+
+# === CORE SETTINGS ===
+# GENERAL SETTINGS
+engine:
+  tf: "1m"
+  initial_capital: 10000
+  commission: 0.001                 # Should be fee and  consider TAKER or MAKER -> For initial PHASES we can meke it simple and use only this one param
+  lookback_window: 100
+
+# === DATA SOURCE ===
+# WHERE ARE RAW DATA -> 1M TF NEEDED
+data:
+  symbols: ["XPLUSDT"]        # List of symbols to backtest
+  timeframe: "1m"                 # Data timeframe
+  source_dir: "data/raw"      # Directory with parquet files
+  source_file: "XPLUSDT-1m-2025-2026-01-22"  # Must be .parquet 1m TF  | Do not include extension -> Just the filename
+  
+
+  # THIS SHOULD MOVE TO STRATEGY AND NOT STAY HERE
+  # Optional date filtering
+  filter:
+    start: "2026-01-10"
+    end: "2026-01-22"
+
+# === STRATEGY COMPONENTS ===
+strategy:
+  # IL TF DELLA STRATEGIA CONTROLLA TUTTO
+  tf: "4h"                    # ← Aggiunto a livello strategy
+  
+  entry:
+    name: "price_above_sma"
+    params:
+      # period e lookback rimangono per la strategia
+      period: 200             # SMA period che la strategia usa
+      lookback: 1
+  
+  exit:
+    name: "hold_bars"
+    params:
+      bars: 100               # Hold for 10 bars
+  
+  # RISK: How much to risk per trade (optional)
+  risk:
+    name: "fixed_percent"    # Nome della classe risk manager
+    params:
+      risk_per_trade: 0.02   # Rischia 2% dell'equity corrente
+      #max_drawdown: 0.15     # Opzionale: blocca trading se drawdown > 15%
+
+# === INDICATORS REQUIRED ===
+
+indicators:
+  # TUTTI calcolati per strategy.tf = "4h"
+  - name: "sma"
+    params: {period: 200}
+    column: "sma_200"        # Diventerà "sma_200_4h" internamente
+  
+  - name: "sma"
+    params: {period: 50}
+    column: "sma_50"
+  
+  - name: "atr"
+    params: {period: 14}
+    column: "atr_14"
+
+
+# === JOURNALING ===
+journal:
+  save_dir: "data/journals/"
+  filename_template: "{symbol}_{entry_strategy}_{timestamp}"
+  
+
+
+# === PLOTTING CONFIGURATION ===
+plotting:
+  indicators_to_plot:
+    - column: "sma_200"
+      label: "SMA 200 (Strategy)"
+      color: "#ff0000"
+      linewidth: 2
+      alpha: 1
+    
+    # - column: "sma_50"  
+    #   label: "SMA 50 (Analysis)"
+    #   color: "#0000ff"
+    #   linewidth: 2
+    #   alpha: 1
+
+# **Il `column` deve corrispondere al nome della colonna nel DataFrame!**    
+
+  # Opzioni di layout
+  layout:
+    price_height_ratio: 3
+    indicators_height_ratio: 2
+    position_height_ratio: 1
+  
+  style:
+    background_color: "#f5f5f5"
+    grid_alpha: 0.2
+
+
+
+

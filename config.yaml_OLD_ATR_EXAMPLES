@@ -1,0 +1,32 @@
+strategy:
+  indicators:
+    # ATR correttamente calcolato su timeframe superiori
+    - name: "atr_14_1h"
+      type: "atr"
+      params:
+        period: 14
+        tf: "1h"  # ← Calcolato su OHLC 1h, costante per 60 minuti
+      column_name: "atr_14_1h"
+      note: "Calcolato correttamente su dati 1h. Costante per ogni candela 1h."
+    
+    - name: "atr_20_15m"
+      type: "atr"
+      params:
+        period: 20
+        tf: "15m"
+      column_name: "atr_20_15m"
+    
+    - name: "atr_28_4h"
+      type: "atr"
+      params:
+        period: 28
+        tf: "4h"
+      column_name: "atr_28_4h"
+    
+    # ATR su 1m (se serve, ma di solito no)
+    - name: "atr_14_1m"
+      type: "atr"
+      params:
+        period: 14
+        # tf omesso = default 1m
+      column_name: "atr_14_1m"

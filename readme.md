@@ -123,15 +123,190 @@ A **simple, modular, and fast** backtesting system that allows you to:
 
 **Goal reached:** Stable framework with risk management and visualization! 📊
 
-### **📋 PHASE 4: ENHANCED FEATURES**
-- [ ] Multiple indicators (EMA, RSI, ATR)
+========================================================================================
+========================================================================================
+# BREAKING CHANGES
+
+# Trading Framework - Multi-Timeframe Indicator System
+
+## Overview
+
+This document explains the **multi-timeframe indicator calculation system** implemented in the trading framework. The system allows strategies to operate on any timeframe (1h, 4h, etc.) while calculating indicators correctly for that timeframe.
+
+## Core Concept
+
+Instead of calculating indicators directly on 1-minute data and hoping they work on higher timeframes, we now:
+
+1. **Resample 1m data** to the target strategy timeframe (e.g., 1h, 4h)
+2. **Calculate indicators** on the resampled timeframe data
+3. **Forward-fill** indicator values back to 1-minute resolution for consistent alignment
+
+## Architecture
+
+### 1. Data Flow
+
+```
+Raw 1m Data (Parquet)
+    ↓
+Resample to Strategy TF (e.g., 4h)
+    ↓
+Calculate Indicators (on 4h data)
+    ↓
+Forward-fill to 1m (for alignment)
+    ↓
+Backtest Engine (uses 4h bars with indicators)
+```
+
+### 2. Configuration Example
+
+```yaml
+strategy:
+  timeframe: "4h"  # Strategy operates on 4-hour candles
+
+indicators:
+  - name: "sma"
+    params: 
+      period: 200
+      tf: "4h"     # Calculate SMA on 4h data
+    column: "sma_200"
+```
+
+### 3. Key Components
+
+#### **Resampling (`backtest.py`)**
+```python
+def resample_to_timeframe(df, target_tf: str):
+    """
+    Convert 1m OHLCV data to target timeframe.
+    Uses label='left', closed='left' for proper candlestick alignment.
+    """
+```
+
+#### **Indicator Calculation (`indicator_manager.py`)**
+- Each calculator (SMA, EMA, ATR, CVD) supports `tf` parameter
+- Calculates on resampled data, then forward-fills to 1m
+- Caching includes timeframe in cache key (e.g., `sma_period200_4h_1m_xxxxxx.parquet`)
+
+#### **Timeframe Support**
+```python
+tf_map = {
+    "1m": "1T",
+    "5m": "5T",
+    "15m": "15T",
+    "30m": "30T",
+    "1h": "1h",
+    "2h": "2h",
+    "3h": "3h",
+    "4h": "4h",
+    "6h": "6h",
+    "8h": "8h",
+    "12h": "12h",
+    "1d": "1D",
+}
+```
+
+## Benefits
+
+### 1. **Accurate Indicator Calculation**
+- SMA 200 on 4h data uses true 4-hour candles (800 hours of data)
+- Not just SMA 200 on 1m data (which would be 200 minutes)
+
+### 2. **Consistent Timeframe Alignment**
+- All indicators calculated on the same resampled data
+- No mismatch between strategy timeframe and indicator timeframe
+
+### 3. **Efficient Caching**
+- Separate cache files for each timeframe
+- `sma_period200_1h_1m_xxxxxx.parquet` vs `sma_period200_4h_1m_yyyyyy.parquet`
+
+### 4. **Flexible Strategy Design**
+- Easy to test same strategy on different timeframes
+- Compare 1h vs 4h performance directly
+
+## Example: SMA 200 on Different Timeframes
+
+| Timeframe | Calculation Basis | Cache File |
+|-----------|------------------|------------|
+| 1h | 200 hours of 1-hour candles | `sma_period200_1h_1m_xxxxxx.parquet` |
+| 4h | 200 periods of 4-hour candles (800 hours) | `sma_period200_4h_1m_yyyyyy.parquet` |
+| 1d | 200 days of daily candles | `sma_period200_1d_1m_zzzzzz.parquet` |
+
+## Plotting Improvements
+
+The forward-fill approach makes plotting straightforward:
+
+1. **Price chart**: Resampled OHLC data (e.g., 4h candles)
+2. **Indicators**: Calculated on same 4h data, forward-filled for alignment
+3. **Signals**: Entry/exit points aligned with 4h candle timestamps
+
+No more misaligned indicators on charts!
+
+## Usage
+
+### 1. Configure Strategy Timeframe
+```yaml
+strategy:
+  timeframe: "4h"  # Change this to test different timeframes
+```
+
+### 2. Define Indicators
+```yaml
+indicators:
+  - name: "sma"
+    params: 
+      period: 200
+      # tf is automatically added from strategy.timeframe
+    column: "sma_200"
+```
+
+### 3. Run Backtest
+```bash
+python backtest.py
+```
+
+The system automatically:
+- Loads 1m data
+- Resamples to configured timeframe
+- Calculates indicators on resampled data
+- Runs strategy on the target timeframe
+
+## Performance Considerations
+
+1. **Memory**: Loading full historical data for indicator calculation
+2. **Cache Size**: Separate cache files for each timeframe/parameter combination
+3. **Calculation Time**: Initial calculation on full data, then cached
+
+## Future Enhancements
+
+1. **Indicator-on-indicator**: Calculate RSI of SMA, etc.
+2. **Multiple timeframes in one strategy**: Use 1h for entries, 4h for trend
+3. **Dynamic timeframe selection**: Strategy chooses optimal timeframe
+
+## Conclusion
+
+The multi-timeframe system provides accurate, consistent indicator calculation across any timeframe, enabling robust strategy testing and clear visualization of results.
+
+========================================================================================
+========================================================================================
+
+### **📋 PHASE 4.A: ENHANCED FEATURES**
+- ✅ Multiple indicators (EMA, CVD, ATR) -> Make considerations about 1m TF constrains
+
+### **📋 PHASE 4.B: ENHANCED FEATURES**
+- [ ] Improve documentation -> Make it easier to read and use
+
+### **📋 PHASE 4.C: ENHANCED FEATURES**
 - [ ] Multiple entry/exit strategies
 - [ ] Multi-asset support
-- [ ] Multi-timeframe indicators
-- [ ] Advanced risk metrics (Sharpe, Sortino, Calmar)
 - [ ] Walk-forward testing
 - [ ] Monte Carlo simulations
 - [ ] Parameter optimization (grid search)
+- [ ] Multi-timeframe indicators
+- [ ] Advanced risk metrics (Sharpe, Sortino, Calmar)
+
+Papers to read:
+- https://people.duke.edu/~charvey/Research/Published_Papers/P116_Evaluating_trading_strategies.pdf
+- https://www.davidhbailey.com/dhbpapers/backtest-prob.pdf
 
 ### **📋 PHASE 5: PRODUCTION READY**
 - [ ] Robust error handling
