@@ -1,131 +1,259 @@
-# 🧩 HOW TO WRITE COMPONENTS FOR THE FRAMEWORK
+# Component Development Guide
 
-## 1. HOW TO WRITE AN INDICATOR
+## 🧩 How to Extend the Framework
 
-**File:** `indicators/sma_calculator.py`
+This guide explains how to create custom indicators, entry/exit strategies, and risk managers for the framework.
 
+## 1. Creating Indicators
+
+### File Structure
+Place new indicator calculators in `indicators/` directory:
+```
+indicators/
+├── base_calculator.py    # Base class
+├── sma_calculator.py     # Example
+├── ema_calculator.py     # Example
+└── your_indicator.py     # Your new indicator
+```
+
+### Base Class
 ```python
-from .base_calculator import BaseCalculator
-import talib
-
-class SMACalculator(BaseCalculator):
-    """
-    Calculates Simple Moving Average
-    Config example: {name: "sma", params: {period: 20}, tf: "1m", column: "sma_20"}
-    """
+# indicators/base_calculator.py
+class BaseCalculator:
+    def __init__(self, symbol=None, timeframe=None):
+        self.symbol = symbol
+        self.timeframe = timeframe
     
     def calculate(self, data, params):
         """
-        data: DataFrame with OHLCV + other columns
-        params: dict with parameters (e.g., {"period": 20})
-        Returns: Series with SMA values
+        Main calculation method.
+        
+        Args:
+            data: DataFrame with OHLCV columns
+            params: Dictionary of indicator parameters
+        
+        Returns:
+            Series with calculated values
+        """
+        raise NotImplementedError("Must implement calculate()")
+```
+
+### Example: SMA Calculator
+```python
+# indicators/sma_calculator.py
+import pandas as pd
+import talib
+from .base_calculator import BaseCalculator
+
+class SMACalculator(BaseCalculator):
+    """Simple Moving Average calculator"""
+    
+    def calculate(self, data, params):
+        """
+        Calculates SMA on the resampled timeframe data.
+        
+        Args:
+            data: DataFrame with OHLCV (already resampled to target TF)
+            params: {"period": 20}
+        
+        Returns:
+            pd.Series with SMA values
         """
         period = params.get('period', 20)
         
-        # If there's tf_multiplier (indicator on different timeframe)
-        if hasattr(self, 'tf_multiplier'):
-            period = period * self.tf_multiplier
-        
-        # Calculate SMA using TA-Lib (or your own implementation)
+        # Calculate SMA on the close prices
         sma_values = talib.SMA(data['close'], timeperiod=period)
         
-        return sma_values
+        return pd.Series(sma_values, index=data.index)
+    
+    def get_cache_key(self, params):
+        """Generate unique cache key including timeframe"""
+        period = params.get('period', 20)
+        return f"sma_period{period}_{self.timeframe}"
 ```
 
-Automatic registration: The system finds all files in indicators/ and registers them automatically.
-
-## 2. HOW TO WRITE AN ENTRY STRATEGY
-
-File: strategies/entry/ema_cross.py
-
+### Multi-Timeframe Considerations
 ```python
+class YourIndicatorCalculator(BaseCalculator):
+    def calculate(self, data, params):
+        # 'data' is already resampled to the target timeframe
+        # specified in strategy.timeframe
+        
+        # For example, if strategy.timeframe = "4h":
+        # - data contains 4-hour candles
+        # - Indicators are calculated on 4h data
+        # - Results are forward-filled to 1m by the framework
+        
+        # Access OHLCV as usual:
+        close_prices = data['close']    # 4h closes
+        high_prices = data['high']      # 4h highs
+        volume = data['volume']         # 4h aggregated volume
+        
+        # Your calculation here...
+```
+
+## 2. Creating Entry Strategies
+
+### File Location
+```
+strategies/entry/
+├── base_entry.py          # Base class
+├── price_above_sma.py     # Example
+└── your_strategy.py       # Your new strategy
+```
+
+### Base Class
+```python
+# strategies/entry/base_entry.py
+class BaseEntryStrategy:
+    def __init__(self, params=None):
+        self.params = params or {}
+        self.name = self.__class__.__name__
+    
+    def should_enter(self, data):
+        """
+        Determine if entry conditions are met.
+        
+        Args:
+            data: DataWindow object with access to current/past values
+        
+        Returns:
+            bool: True if should enter position
+        """
+        raise NotImplementedError("Must implement should_enter()")
+```
+
+### Example: EMA Cross Entry
+```python
+# strategies/entry/ema_cross.py
 from .base_entry import BaseEntryStrategy
 
 class EMACrossEntry(BaseEntryStrategy):
     """
-    Enters when fast EMA crosses above slow EMA
-    Config: {name: "ema_cross", params: {fast: 20, slow: 50}}
+    Entry when fast EMA crosses above slow EMA.
+    
+    Config example:
+    entry:
+      name: "ema_cross"
+      params:
+        fast_column: "ema_12"
+        slow_column: "ema_26"
     """
     
     def __init__(self, params=None):
         super().__init__(params)
-        self.fast_period = params.get('fast_period', 20)
-        self.slow_period = params.get('slow_period', 50)
+        self.fast_column = params.get('fast_column', 'ema_12')
+        self.slow_column = params.get('slow_column', 'ema_26')
     
     def should_enter(self, data):
         """
-        data: special object that allows access with offset
-               data['ema_fast'][0] = current value
-               data['ema_fast'][-1] = previous candle value
-               data['ema_fast'][-2] = two candles ago
+        Entry logic: Fast EMA crosses above Slow EMA
         
-        Returns: True if entry conditions are satisfied
+        Note: data contains values aligned to 1m resolution via forward-fill
         """
-        # Access PRECALCULATED indicators
-        # Names ('ema_fast', 'ema_slow') come from config.yaml
-        ema_fast = data['ema_fast']
-        ema_slow = data['ema_slow']
+        # Access current and previous values
+        fast_current = data[self.fast_column][0]
+        slow_current = data[self.slow_column][0]
+        fast_previous = data[self.fast_column][-1]
+        slow_previous = data[self.slow_column][-1]
         
-        # Entry logic
-        current_cross = ema_fast[0] > ema_slow[0]
-        previous_cross = ema_fast[-1] <= ema_slow[-1]
+        # Cross-over detection
+        cross_above = (fast_current > slow_current and 
+                      fast_previous <= slow_previous)
         
-        # Additional conditions if needed
-        volume_ok = data['volume'][0] > data['volume_sma'][0]
+        # Additional filters (optional)
+        volume_ok = data['volume'][0] > 1000  # Minimum volume
         
-        return current_cross and previous_cross and volume_ok
+        return cross_above and volume_ok
 ```
 
-The data object - How it works:
+### Data Window Access
+The `data` object provides sliding window access to all calculated values:
+
 ```python
-# Inside should_enter(), you have access to:
-data['close'][0]      # Current close price
-data['close'][-1]     # Previous close
-data['close'][-5]     # Close 5 candles ago
-
-data['sma_20'][0]     # Current SMA20 (already calculated)
-data['rsi_14'][-1]    # RSI14 previous candle
-
-data['volume']        # All volumes (list/array)
-data['high']          # All highs
-# ... any column present in the data
-
-# The engine provides a "sliding window" of data
-# so you can access past values with negative offset
+def should_enter(self, data):
+    # Price data (always available)
+    current_close = data['close'][0]      # Current candle
+    previous_close = data['close'][-1]     # Previous candle
+    high_5_bars_ago = data['high'][-5]     # 5 bars ago
+    
+    # Indicator values (from config.yaml)
+    sma_current = data['sma_200'][0]      # Current SMA200
+    rsi_previous = data['rsi_14'][-1]     # Previous RSI
+    atr_value = data['atr_14'][0]         # Current ATR
+    
+    # Time-based access
+    current_time = data.index[0]          # Current timestamp
+    hour = current_time.hour              # Extract hour
+    
+    return your_condition
 ```
 
-## 3. HOW TO WRITE AN EXIT STRATEGY
+## 3. Creating Exit Strategies
 
-File: strategies/exit/fixed_tp_sl.py
+### File Location
+```
+strategies/exit/
+├── base_exit.py           # Base class
+├── hold_bars.py           # Example
+├── fixed_tp_sl.py         # Example
+└── your_exit.py           # Your new strategy
+```
 
+### Base Class
 ```python
+# strategies/exit/base_exit.py
+class BaseExitStrategy:
+    def __init__(self, params=None):
+        self.params = params or {}
+        self.name = self.__class__.__name__
+    
+    def should_exit(self, data, entry_price, entry_time, position_type):
+        """
+        Determine if exit conditions are met.
+        
+        Args:
+            data: DataWindow with current market context
+            entry_price: Price at which position was entered
+            entry_time: Timestamp of entry
+            position_type: "long" or "short"
+        
+        Returns:
+            tuple: (should_exit: bool, reason: str)
+        """
+        raise NotImplementedError("Must implement should_exit()")
+```
+
+### Example: Fixed Take Profit & Stop Loss
+```python
+# strategies/exit/fixed_tp_sl.py
 from .base_exit import BaseExitStrategy
 
 class FixedTPSLExit(BaseExitStrategy):
     """
-    Exit with fixed Take Profit and Stop Loss
-    Config: {name: "fixed_tp_sl", params: {tp_percent: 0.05, sl_percent: 0.02}}
+    Exit with fixed percentage take profit and stop loss.
+    
+    Config example:
+    exit:
+      name: "fixed_tp_sl"
+      params:
+        tp_percent: 0.05    # 5% take profit
+        sl_percent: 0.02    # 2% stop loss
     """
     
     def __init__(self, params=None):
         super().__init__(params)
-        self.tp_percent = params.get('tp_percent', 0.05)  # +5%
-        self.sl_percent = params.get('sl_percent', 0.02)  # -2%
+        self.tp_percent = params.get('tp_percent', 0.05)
+        self.sl_percent = params.get('sl_percent', 0.02)
     
-    def should_exit(self, data, entry_price, entry_time):
-        """
-        data: same object as entry strategies
-        entry_price: price at which we entered (provided by engine)
-        entry_time: entry timestamp (provided by engine)
-        
-        Returns: (should_exit, reason)
-        - should_exit: True to exit
-        - reason: string reason ("TP", "SL", "TRAILING", etc.)
-        """
+    def should_exit(self, data, entry_price, entry_time, position_type):
         current_price = data['close'][0]
         
         # Calculate P&L percentage
-        pnl_pct = (current_price / entry_price) - 1
+        if position_type == "long":
+            pnl_pct = (current_price / entry_price) - 1
+        else:  # short
+            pnl_pct = (entry_price / current_price) - 1
         
         # Check Take Profit
         if pnl_pct >= self.tp_percent:
@@ -135,234 +263,244 @@ class FixedTPSLExit(BaseExitStrategy):
         if pnl_pct <= -self.sl_percent:
             return True, "STOP_LOSS"
         
-        # Other exit conditions (e.g., contrary signal)
-        if data['rsi'][0] > 70:  # RSI overbought
-            return True, "RSI_OVERBOUGHT"
+        # Optional: Time-based exit
+        bars_held = len(data) - data.index.get_loc(entry_time)
+        if bars_held > 50:  # Exit after 50 bars
+            return True, "TIME_EXIT"
         
         return False, None
 ```
 
-## 4. HOW TO WRITE RISK MANAGEMENT
+## 4. Creating Risk Managers
 
-File: strategies/risk/fixed_percent.py
+### File Location
+```
+strategies/risk/
+├── base_risk.py           # Base class
+├── fixed_percent.py       # Example
+└── your_risk.py           # Your new manager
+```
 
+### Base Class
 ```python
+# strategies/risk/base_risk.py
+class BaseRiskManager:
+    def __init__(self, params=None):
+        self.params = params or {}
+        self.name = self.__class__.__name__
+    
+    def calculate_position_size(self, capital, entry_price, 
+                               stop_loss_price, position_type):
+        """
+        Calculate position size based on risk parameters.
+        
+        Args:
+            capital: Available capital
+            entry_price: Intended entry price
+            stop_loss_price: Stop loss price
+            position_type: "long" or "short"
+        
+        Returns:
+            float: Position size (quantity)
+        """
+        raise NotImplementedError("Must implement calculate_position_size()")
+```
+
+### Example: Fixed Percentage Risk
+```python
+# strategies/risk/fixed_percent.py
 from .base_risk import BaseRiskManager
 
 class FixedPercentRisk(BaseRiskManager):
     """
-    Risks fixed percentage of capital per trade
-    Config: {name: "fixed_percent", params: {risk_per_trade: 0.02}}
+    Risk fixed percentage of capital per trade.
+    
+    Config example:
+    risk:
+      name: "fixed_percent"
+      params:
+        risk_per_trade: 0.02    # Risk 2% per trade
     """
     
     def __init__(self, params=None):
         super().__init__(params)
-        self.risk_per_trade = params.get('risk_per_trade', 0.02)  # 2%
+        self.risk_per_trade = params.get('risk_per_trade', 0.02)
     
-    def calculate_position_size(self, capital, entry_price, stop_loss_price):
-        """
-        Calculate how much to buy/sell
-        
-        Formula: position_size = (capital * risk_per_trade) / (entry_price - stop_loss_price)
-        
-        capital: available capital
-        entry_price: entry price
-        stop_loss_price: stop loss price (from exit strategy)
-        
-        Returns: quantity to trade (e.g., 0.5 BTC)
-        """
+    def calculate_position_size(self, capital, entry_price, 
+                               stop_loss_price, position_type):
+        # Calculate risk amount
         risk_amount = capital * self.risk_per_trade
-        risk_per_unit = abs(entry_price - stop_loss_price)
         
+        # Calculate risk per unit
+        if position_type == "long":
+            risk_per_unit = entry_price - stop_loss_price
+        else:  # short
+            risk_per_unit = stop_loss_price - entry_price
+        
+        # Avoid division by zero
         if risk_per_unit <= 0:
-            return 0  # Avoid division by zero
+            return 0
         
+        # Calculate position size
         position_size = risk_amount / risk_per_unit
         
         return position_size
 ```
 
-## 5. COMPLETE CANDLE-FLOW
+## 5. Complete Example: RSI Strategy
 
-For each candle (ordered timestamp):
-    ↓
-1. Engine prepares "data window":
-   - Takes current OHLCV
-   - Adds all calculated indicators
-   - Creates object with offset access (data['ind'][0], [-1], etc.)
-    ↓
-2. If NOT in position:
-   - Calls entry_strategy.should_enter(data)
-   - If True: calculates position size → enters
-    ↓
-3. If IN position:
-   - Calls exit_strategy.should_exit(data, entry_price, entry_time)
-   - If True: executes exit → calculates P&L
-    ↓
-4. Writes to journal:
-   - Timestamp, symbol, price
-   - entry_signal (True/False)
-   - exit_signal (True/False + reason)
-   - in_position, position_size, capital
-   - indicator values (optional)
-6. COMPLETE EXAMPLE: SMA CROSS STRATEGY
-
-config.yaml:
+### Configuration
 ```yaml
+# config.yaml
 strategy:
+  timeframe: "1h"
+  
   entry:
-    name: "sma_cross"
+    name: "rsi_oversold"
     params:
-      fast_period: 20
-      slow_period: 50
+      rsi_column: "rsi_14"
+      oversold_level: 30
   
   exit:
-    name: "fixed_tp_sl"
+    name: "rsi_overbought"
     params:
-      tp_percent: 0.03
-      sl_percent: 0.015
+      rsi_column: "rsi_14"
+      overbought_level: 70
+  
+  risk:
+    name: "fixed_percent"
+    params:
+      risk_per_trade: 0.01
 
 indicators:
-  - name: "sma"
-    params: {period: 20}
-    tf: "1m"
-    column: "sma_fast"
-  
-  - name: "sma"
-    params: {period: 50}
-    tf: "1m"
-    column: "sma_slow"
+  - name: "rsi"
+    params: {period: 14}
+    column: "rsi_14"
 ```
 
-### strategies/EXAMPLES
+### Entry Strategy
 ```python
-class SMACrossEntry:
+# strategies/entry/rsi_oversold.py
+from .base_entry import BaseEntryStrategy
+
+class RSIOversoldEntry(BaseEntryStrategy):
+    def __init__(self, params=None):
+        super().__init__(params)
+        self.rsi_column = params.get('rsi_column', 'rsi_14')
+        self.oversold_level = params.get('oversold_level', 30)
+    
     def should_enter(self, data):
-        # Condition: SMA20 crosses above SMA50
-        return (
-            data['sma_fast'][0] > data['sma_slow'][0] and 
-            data['sma_fast'][-1] <= data['sma_slow'][-1]
-        )
-
-
-
-class FixedTPSLExit:
-    def should_exit(self, data, entry_price, entry_time):
-        current_price = data['close'][0]
-        pnl = (current_price / entry_price) - 1
+        # Entry when RSI crosses above oversold level
+        current_rsi = data[self.rsi_column][0]
+        previous_rsi = data[self.rsi_column][-1]
         
-        if pnl >= 0.03:    # TP +3%
-            return True, "TAKE_PROFIT"
-        elif pnl <= -0.015: # SL -1.5%
-            return True, "STOP_LOSS"
+        return (previous_rsi <= self.oversold_level and 
+                current_rsi > self.oversold_level)
+```
+
+### Exit Strategy
+```python
+# strategies/exit/rsi_overbought.py
+from .base_exit import BaseExitStrategy
+
+class RSIOverboughtExit(BaseExitStrategy):
+    def __init__(self, params=None):
+        super().__init__(params)
+        self.rsi_column = params.get('rsi_column', 'rsi_14')
+        self.overbought_level = params.get('overbought_level', 70)
+    
+    def should_exit(self, data, entry_price, entry_time, position_type):
+        current_rsi = data[self.rsi_column][0]
+        
+        # Exit when RSI reaches overbought level
+        if current_rsi >= self.overbought_level:
+            return True, "RSI_OVERBOUGHT"
         
         return False, None
 ```
 
-## 7. BASE CLASSES (templates to follow)
+## 6. Best Practices
 
-### strategies/entry/base_entry.py:
+### 1. **Keep Strategies Stateless**
+- Don't store state between calls
+- All conditions should use current data window
+- Use `params` for configuration, not instance variables
 
+### 2. **Document Required Indicators**
 ```python
-class BaseEntryStrategy:
-    """Base class for all entry strategies"""
-    
-    def __init__(self, params=None):
-        self.params = params or {}
-        self.name = self.__class__.__name__
-    
-    def should_enter(self, data):
-        """
-        TO BE IMPLEMENTED by child classes
-        data: object with access to data and indicators
-        Returns: True if entry conditions satisfied
-        """
-        raise NotImplementedError("Must implement should_enter()")
-    
+class YourStrategy(BaseEntryStrategy):
     def get_required_indicators(self):
         """
-        Optional: list of required indicators
-        Example: ['sma_20', 'rsi_14', 'volume_ma']
+        Optional: List indicators this strategy needs
+        Helps with validation and dependency tracking
         """
-        return []
+        return ['sma_20', 'rsi_14', 'volume_ma']
 ```
 
-### strategies/exit/base_exit.py:
-
+### 3. **Use Descriptive Reason Strings**
 ```python
-class BaseExitStrategy:
-    """Base class for all exit strategies"""
-    
-    def __init__(self, params=None):
-        self.params = params or {}
-        self.name = self.__class__.__name__
-    
-    def should_exit(self, data, entry_price, entry_time):
-        """
-        TO BE IMPLEMENTED
-        Returns: (should_exit: bool, reason: str)
-        """
-        raise NotImplementedError("Must implement should_exit()")
+# Good:
+return True, "TAKE_PROFIT_5_PERCENT"
+
+# Bad:
+return True, "exit"
 ```
 
-### indicators/base_calculator.py:
-
+### 4. **Handle Edge Cases**
 ```python
-class BaseCalculator:
-    """Base class for all indicators"""
+def should_enter(self, data):
+    # Check if we have enough data
+    if len(data) < 50:
+        return False
     
-    def __init__(self, symbol=None, timeframe=None):
-        self.symbol = symbol
-        self.timeframe = timeframe
+    # Check if indicators are calculated
+    if pd.isna(data['sma_200'][0]):
+        return False
     
-    def calculate(self, data, params):
-        """
-        TO BE IMPLEMENTED
-        data: DataFrame with OHLCV
-        params: dict with indicator parameters
-        Returns: Series with calculated values
-        """
-        raise NotImplementedError("Must implement calculate()")
-    
-    def get_cache_key(self, params):
-        """
-        Generate unique key for cache
-        Example: "sma_20_1m" for SMA period 20 on TF 1m
-        """
-        param_str = "_".join(f"{k}{v}" for k, v in sorted(params.items()))
-        return f"{self.__class__.__name__.lower()}_{param_str}_{self.timeframe}"
+    # Your logic here...
 ```
 
-## 8. CONVENTIONS AND BEST PRACTICES
-
-Indicator names in config = column names in data
-Negative offsets for past values: [0] current, [-1] previous
-Strategies don't manage state - only boolean conditions
-Everything configurable via YAML - no hardcoded values
-Intelligent caching - reuses indicators between strategies
-
-## 9. DEBUGGING AND LOGGING
-In strategies you can add logging:
-
+### 5. **Add Logging for Debugging**
 ```python
 import logging
 logger = logging.getLogger(__name__)
 
-class MyStrategy(BaseEntryStrategy):
+class YourStrategy(BaseEntryStrategy):
     def should_enter(self, data):
-        # Log values for debugging
-        logger.debug(f"SMA fast: {data['sma_fast'][0]:.2f}, SMA slow: {data['sma_slow'][0]:.2f}")
+        logger.debug(f"Current RSI: {data['rsi'][0]:.2f}")
         
         if condition:
-            logger.info(f"ENTRY SIGNAL at {data['timestamp'][0]}")
+            logger.info(f"Entry signal at {data.index[0]}")
             return True
         
         return False
 ```
 
-The Parquet journal contains ALL data for post-trade analysis.
+## 7. Testing Your Components
 
-With this guide, writing a new strategy is:
-- Define indicators in config.yaml
-- Write 10-20 lines in strategies/entry/new_strategy.py
-- Run python backtest.py
+### Quick Test Script
+```python
+# test_strategy.py
+import sys
+sys.path.append('.')
+from strategies.entry.your_strategy import YourStrategy
+import pandas as pd
+
+# Load sample data
+data = pd.read_parquet('data/raw/XPLUSDT-1m-2025-2026-01-22.parquet')
+
+# Create strategy instance
+strategy = YourStrategy(params={'period': 20})
+
+# Test with data window (simplified)
+# In practice, use the framework's DataWindow class
+```
+
+### Integration Test
+1. Add your component to `config.yaml`
+2. Run `python backtest.py` with small date range
+3. Check journal output for expected behavior
+
+
+
+
