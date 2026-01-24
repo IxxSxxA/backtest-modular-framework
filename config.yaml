@@ -5,9 +5,10 @@
 # === BACKTEST SETTINGS ===
 backtest:
   # Test period (optional - uses all data if omitted)
-  # period:
-  #   start: "2025-12-01"
-  #   end: "2026-01-22"
+  # Start will be automatically normalized to midnight (00:00)
+  period:
+    start: "2026-01-16"
+    end: "2026-01-22"
   
   # Initial capital
   capital:
@@ -15,8 +16,9 @@ backtest:
   
   # Trading costs
   costs:
-    commission: 0.001      # 0.1% per trade (simple: one value for now)
-    # slippage: 0.0        # Future: add slippage
+    commission: 0.001      # 0.1% per trade (entry + exit)
+    # Note: Commission is applied twice (entry + exit)
+    # Total cost per round-trip: ~0.2%
   
   # Execution settings
   execution:
@@ -25,24 +27,37 @@ backtest:
 
 # === DATA SOURCE ===
 data:
-  symbols: ["XPLUSDT"]                           # Symbols to backtest
-  timeframe: "1m"                                # Raw data timeframe (always 1m)
-  source_dir: "data/raw"                         # Directory with parquet files
-  source_file: "XPLUSDT-1m-2025-2026-01-22"     # Filename without .parquet extension
+  symbols: ["XPLUSDT"]
+  timeframe: "1m"  # Raw data is always 1m
+  source_dir: "data/raw"
+  source_file: "XPLUSDT-1m-2025-2026-01-22"
 
 # === STRATEGY CONFIGURATION ===
 strategy:
   timeframe: "5m"
+  
+  # ========================================
+  # NEW: Trading direction configuration
+  # ========================================
+  trading:
+    allow_long: true   # Enable LONG positions
+    allow_short: true  # Enable SHORT positions
+    # Set both to true to test market-neutral strategy
   
   entry:
     name: "ema_cross_sma_cvd"
     params:
       ema_period: 59
       sma_period: 200
-      cvd_window_minutes: 15      # Finestra rolling in minuti
-      cvd_ratio_threshold: 20.0   # Entra long se ratio > +20%
-      # CVD ratio range: -100 (tutto selling) a +100 (tutto buying)
-      # +20% = 20% di volume netto è buying
+      cvd_window_minutes: 5
+      
+      # Separate thresholds for LONG/SHORT
+      long_threshold: 3.0   # Enter LONG when CVD > +20%
+      short_threshold: -3.0 # Enter SHORT when CVD < -20%
+      
+      # CVD Ratio Range: -100 (all selling) to +100 (all buying)
+      # +20% = 20% net buying pressure
+      # -20% = 20% net selling pressure
   
   exit:
     name: "atr_based_exit"
@@ -54,12 +69,12 @@ strategy:
   risk:
     name: "fixed_percent"
     params:
-      risk_per_trade: 0.02
-      max_drawdown: 0.15
+      risk_per_trade: 0.02    # 2% risk per trade
+      max_drawdown: 0.15      # Stop trading if 15% drawdown
 
 # === INDICATORS ===
 indicators:
-  # Medie mobili
+  # Moving Averages
   - name: "ema"
     params: {period: 59}
     column: "ema_59"
@@ -68,16 +83,16 @@ indicators:
     params: {period: 200}
     column: "sma_200"
   
-  # ATR per exit
+  # ATR for exit strategy
   - name: "atr"
     params: {period: 14}
     column: "atr_14"
   
-  # CVD RATIO - Nuovo indicatore semplice
+  # CVD Ratio - Volume Delta Indicator
   - name: "cvdratio"
     params:
       window_minutes: 15
-      use_quote: false
+      use_quote: false  # Use base volume (not quote volume)
     column: "cvd_ratio_15m"
 
 # === PLOTTING ===
@@ -104,8 +119,20 @@ plotting:
       linewidth: 1.5
       alpha: 0.7
       type: "oscillator"
-      ylim: [-100, 100]            # Fixed range for CVD ratio
-      zero_line: true              # Show zero line
+      ylim: [-100, 100]
+      zero_line: true
+      # Add threshold lines
+      hlines:
+        - value: 20
+          color: "#2ECC71"
+          linestyle: "--"
+          alpha: 0.5
+          label: "LONG threshold"
+        - value: -20
+          color: "#E74C3C"
+          linestyle: "--"
+          alpha: 0.5
+          label: "SHORT threshold"
   
   # Layout configuration
   layout:
@@ -117,3 +144,11 @@ plotting:
   style:
     background_color: "#f5f5f5"
     grid_alpha: 0.2
+
+# === OUTPUT SETTINGS ===
+output:
+  journal:
+    save_dir: "data/journals/"
+  
+  plots:
+    enabled: true  # Set to false to disable plotting

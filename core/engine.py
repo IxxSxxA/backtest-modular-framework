@@ -11,7 +11,6 @@ from strategies.entry.base_entry import BaseEntryStrategy
 from strategies.exit.base_exit import BaseExitStrategy
 from strategies.risk.base_risk import BaseRiskManager
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -19,6 +18,7 @@ class BacktestEngine:
     """
     Main backtesting engine.
     Executes trading strategy on historical data.
+    Supports LONG and SHORT positions.
     """
 
     @classmethod
@@ -31,7 +31,7 @@ class BacktestEngine:
         risk_manager: BaseRiskManager,
     ):
         """
-        ✅ Factory method to create engine from config.yaml
+        Factory method to create engine from config.yaml
 
         Args:
             config: Full config dictionary
@@ -43,7 +43,6 @@ class BacktestEngine:
         Returns:
             BacktestEngine instance
         """
-        # ✅ Extract from new config structure
         backtest_config = config.get("backtest", {})
 
         initial_capital = backtest_config.get("capital", {}).get("initial", 10000)
@@ -52,10 +51,16 @@ class BacktestEngine:
             "lookback_window", 100
         )
 
+        # NEW: Trading direction configuration
+        trading_config = config.get("strategy", {}).get("trading", {})
+        allow_long = trading_config.get("allow_long", True)
+        allow_short = trading_config.get("allow_short", False)
+
         logger.info("Creating BacktestEngine from config:")
         logger.info(f"  Initial Capital: ${initial_capital:,.2f}")
         logger.info(f"  Commission: {commission*100:.3f}%")
         logger.info(f"  Lookback Window: {lookback_window} bars")
+        logger.info(f"  Trading: LONG={allow_long}, SHORT={allow_short}")
 
         return cls(
             data=data,
@@ -65,6 +70,8 @@ class BacktestEngine:
             initial_capital=initial_capital,
             commission=commission,
             lookback_window=lookback_window,
+            allow_long=allow_long,
+            allow_short=allow_short,
         )
 
     def __init__(
@@ -76,6 +83,8 @@ class BacktestEngine:
         initial_capital: float = 10000,
         commission: float = 0.001,
         lookback_window: int = 100,
+        allow_long: bool = True,
+        allow_short: bool = False,
     ):
         """
         Initialize backtesting engine.
@@ -88,6 +97,8 @@ class BacktestEngine:
             initial_capital: Starting capital
             commission: Trading commission as decimal (0.001 = 0.1%)
             lookback_window: Number of candles to keep in memory window
+            allow_long: Allow LONG positions
+            allow_short: Allow SHORT positions
         """
         self.data = data
         self.entry_strategy = entry_strategy
@@ -96,6 +107,16 @@ class BacktestEngine:
         self.initial_capital = initial_capital
         self.commission = commission
         self.lookback_window = lookback_window
+
+        # NEW: Trading direction settings
+        self.allow_long = allow_long
+        self.allow_short = allow_short
+
+        # Validate trading direction
+        if not allow_long and not allow_short:
+            raise ValueError(
+                "At least one trading direction (LONG or SHORT) must be enabled!"
+            )
 
         # Trading state
         self.capital = initial_capital
@@ -113,6 +134,7 @@ class BacktestEngine:
         logger.info(f"  Entry strategy: {entry_strategy}")
         logger.info(f"  Exit strategy: {exit_strategy}")
         logger.info(f"  Risk manager: {self.risk_manager.name}")
+        logger.info(f"  Trading directions: LONG={allow_long}, SHORT={allow_short}")
 
     def run(self) -> Dict[str, Any]:
         """
@@ -125,8 +147,24 @@ class BacktestEngine:
 
         total_candles = len(self.data)
 
+        # FIX #8: Ensure lookback doesn't exceed data length
+        start_index = min(self.lookback_window, max(1, total_candles - 1))
+
+        if start_index >= total_candles:
+            raise ValueError(
+                f"Not enough data for backtest!\n"
+                f"  Lookback window: {self.lookback_window}\n"
+                f"  Total candles: {total_candles}\n"
+                f"  Need at least {self.lookback_window + 1} candles"
+            )
+
+        logger.info(
+            f"Starting backtest from candle {start_index}/{total_candles} "
+            f"(lookback: {self.lookback_window})"
+        )
+
         # Main loop
-        for i in range(self.lookback_window, total_candles):
+        for i in range(start_index, total_candles):
             # Create data window for current position
             data_window = DataWindow(self.data, i, self.lookback_window)
             current_time = data_window.get_timestamp()
@@ -142,9 +180,27 @@ class BacktestEngine:
             self._update_journal(i, data_window)
 
             if self.position is None:
-                # Check for entry signal
-                if self.entry_strategy.should_enter(data_window):
-                    self._enter_position(i, data_window)
+                # NEW: Check for entry with direction
+                entry_signal = self.entry_strategy.should_enter(data_window)
+
+                if entry_signal:
+                    # Determine direction (strategy can return bool or dict)
+                    if isinstance(entry_signal, dict):
+                        direction = entry_signal.get("direction", "LONG")
+                    else:
+                        # Default to LONG if strategy returns bool
+                        direction = "LONG"
+
+                    # Check if direction is allowed
+                    if (direction == "LONG" and self.allow_long) or (
+                        direction == "SHORT" and self.allow_short
+                    ):
+                        self._enter_position(i, data_window, direction)
+                    else:
+                        logger.debug(
+                            f"Skipping {direction} entry at {current_time} "
+                            f"(direction not enabled)"
+                        )
 
             else:
                 # Check for exit signal
@@ -178,7 +234,9 @@ class BacktestEngine:
 
         return results
 
-    def _enter_position(self, index: int, data_window: DataWindow):
+    def _enter_position(
+        self, index: int, data_window: DataWindow, direction: str = "LONG"
+    ):
         """Enter a new position with risk management."""
         entry_price = data_window["close"][0]
         entry_time = data_window.get_timestamp()
@@ -190,13 +248,16 @@ class BacktestEngine:
         # Get stop loss price from exit strategy if available
         stop_loss_price = None
         if hasattr(self.exit_strategy, "sl_percent"):
-            stop_loss_price = entry_price * (1 - self.exit_strategy.sl_percent)
+            if direction == "LONG":
+                stop_loss_price = entry_price * (1 - self.exit_strategy.sl_percent)
+            else:  # SHORT
+                stop_loss_price = entry_price * (1 + self.exit_strategy.sl_percent)
 
         risk_amount = self.risk_manager.calculate_position_size(
             capital=self.capital,
             entry_price=entry_price,
             stop_loss_price=stop_loss_price,
-            direction="LONG",
+            direction=direction,
             volatility=None,
         )
 
@@ -205,7 +266,8 @@ class BacktestEngine:
 
         if position_value > self.capital:
             logger.warning(
-                f"Insufficient capital: needed ${position_value:.2f}, have ${self.capital:.2f}"
+                f"Insufficient capital: needed ${position_value:.2f}, "
+                f"have ${self.capital:.2f}"
             )
             return
 
@@ -221,7 +283,7 @@ class BacktestEngine:
             "entry_price": entry_price,
             "entry_time": entry_time,
             "position_size": quantity,
-            "position_type": "long",
+            "position_type": direction.lower(),
             "commission_paid": commission_paid,
             "total_equity_before_entry": total_equity_before,
             "position_value_entry": position_value,
@@ -232,8 +294,11 @@ class BacktestEngine:
         self.capital -= position_value + commission_paid
         total_equity_after = self.capital + position_value
 
+        # Direction emoji
+        direction_emoji = "📈" if direction == "LONG" else "📉"
+
         logger.info(
-            f"📈 ENTRY at {entry_time} | "
+            f"{direction_emoji} ENTRY {direction} at {entry_time} | "
             f"Price: ${entry_price:.2f} | "
             f"Quantity: {quantity:.6f} | "
             f"Position Value: ${position_value:.2f} | "
@@ -247,6 +312,7 @@ class BacktestEngine:
             "entry_time": entry_time,
             "entry_price": entry_price,
             "position_size": quantity,
+            "position_type": direction.lower(),
             "position_value": position_value,
             "commission_entry": commission_paid,
             "total_equity_before": total_equity_before,
@@ -267,6 +333,7 @@ class BacktestEngine:
 
         entry_price = self.position["entry_price"]
         position_size = self.position["position_size"]
+        position_type = self.position["position_type"]
         total_equity_before_entry = self.position["total_equity_before_entry"]
         position_value_entry = self.position["position_value_entry"]
 
@@ -278,20 +345,29 @@ class BacktestEngine:
         self.capital += net_exit_value
         total_equity_after_exit = self.capital
 
-        gross_pnl = exit_value - position_value_entry
+        # Calculate P&L considering direction
+        if position_type == "long":
+            gross_pnl = exit_value - position_value_entry
+            pnl_percent = (exit_price / entry_price - 1) * 100
+        else:  # SHORT
+            gross_pnl = position_value_entry - exit_value
+            pnl_percent = (1 - exit_price / entry_price) * 100
+
         total_commission = self.position["commission_paid"] + exit_commission
         net_pnl = gross_pnl - total_commission
-
-        pnl_percent = (exit_price / entry_price - 1) * 100
         net_pnl_percent = (net_pnl / total_equity_before_entry) * 100
         bars_held = index - self.position["entry_index"]
 
+        # Direction emoji
+        direction_emoji = "📉" if position_type == "long" else "📈"
+        pnl_emoji = "✅" if net_pnl > 0 else "❌"
+
         logger.info(
-            f"📉 EXIT at {exit_time} | "
+            f"{direction_emoji} EXIT {position_type.upper()} at {exit_time} | "
             f"Price: ${exit_price:.2f} | "
             f"Reason: {reason} | "
             f"Bars held: {bars_held} | "
-            f"Net P&L: ${net_pnl:+.2f} ({net_pnl_percent:+.2f}%)"
+            f"{pnl_emoji} Net P&L: ${net_pnl:+.2f} ({net_pnl_percent:+.2f}%)"
         )
 
         current_trade = self.trades[-1]
@@ -336,9 +412,20 @@ class BacktestEngine:
         if self.position:
             entry_price = self.position["entry_price"]
             position_size = self.position["position_size"]
-            position_value = position_size * current_price
-            unrealized_pnl = position_value - (position_size * entry_price)
-            unrealized_pnl_percent = (current_price / entry_price - 1) * 100
+            position_type = self.position["position_type"]
+
+            # Calculate position value based on direction
+            if position_type == "long":
+                position_value = position_size * current_price
+                unrealized_pnl = position_value - (position_size * entry_price)
+                unrealized_pnl_percent = (current_price / entry_price - 1) * 100
+            else:  # SHORT
+                entry_value = position_size * entry_price
+                price_change = current_price - entry_price
+                position_value = entry_value - (price_change * position_size)
+                unrealized_pnl = position_value - entry_value
+                unrealized_pnl_percent = (1 - current_price / entry_price) * 100
+
             total_equity = self.capital + position_value
 
             journal_entry.update(
@@ -355,11 +442,22 @@ class BacktestEngine:
         self.journal.append(journal_entry)
 
     def _update_equity(self, index: int, current_price: float):
-        """Update equity curve."""
+        """Update equity curve considering position direction."""
         if self.position is None:
             equity = self.capital
         else:
-            position_value = self.position["position_size"] * current_price
+            position_type = self.position["position_type"]
+            position_size = self.position["position_size"]
+            entry_price = self.position["entry_price"]
+
+            # Calculate position value based on direction
+            if position_type == "long":
+                position_value = position_size * current_price
+            else:  # SHORT
+                entry_value = position_size * entry_price
+                price_change = current_price - entry_price
+                position_value = entry_value - (price_change * position_size)
+
             equity = self.capital + position_value
 
         equity_entry = {

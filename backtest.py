@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from core.data_loader import DataLoader
+from core.resampler import DataResampler  # NEW IMPORT
 from core.indicator_manager import IndicatorManager
 from core.engine import BacktestEngine
 from core.journal_writer import JournalWriter
@@ -21,7 +22,7 @@ from strategies.risk.fixed_percent import FixedPercent
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s | %(name)s | %(levelname)s | %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -33,73 +34,7 @@ def load_config(config_path: str = "config.yaml") -> dict:
     return config
 
 
-def resample_to_timeframe(df, target_tf: str):
-    """
-    Resample 1m data to target timeframe with ALL required columns.
-    """
-    logger.info(f"Resampling from 1m to {target_tf}...")
-
-    tf_map = {
-        "1m": "1min",
-        "5m": "5min",
-        "15m": "15min",
-        "30m": "30min",
-        "1h": "1h",
-        "2h": "2h",
-        "3h": "3h",
-        "4h": "4h",
-        "6h": "6h",
-        "8h": "8h",
-        "12h": "12h",
-        "1d": "1D",
-    }
-
-    pandas_tf = tf_map.get(target_tf)
-    if not pandas_tf:
-        raise ValueError(f"Unsupported timeframe: {target_tf}")
-
-    agg_dict = {
-        # OHLC
-        "open": "first",
-        "high": "max",
-        "low": "min",
-        "close": "last",
-        # Volume columns (SUM aggregation)
-        "volume": "sum",
-        "quote_volume": "sum",
-        "taker_buy_volume": "sum",
-        "taker_buy_quote_volume": "sum",
-        # Others
-        "count": "sum",
-        "ignore": "sum",
-    }
-
-    existing_cols = [col for col in agg_dict.keys() if col in df.columns]
-    filtered_agg_dict = {col: agg_dict[col] for col in existing_cols}
-
-    # Resample with label='left', closed='left'
-    resampled = df.resample(pandas_tf, label="left", closed="left").agg(
-        filtered_agg_dict
-    )
-
-    # Forward-fill NaN values per OHLC
-    resampled[["open", "high", "low", "close"]] = resampled[
-        ["open", "high", "low", "close"]
-    ].ffill()
-
-    # Drop any remaining NaN rows
-    original_len = len(resampled)
-    resampled = resampled.dropna()
-
-    if len(resampled) < original_len:
-        logger.warning(
-            f"Dropped {original_len - len(resampled)} incomplete {target_tf} candles at start"
-        )
-
-    logger.info(f"Resampled: {len(df)} rows (1m) → {len(resampled)} rows ({target_tf})")
-    logger.debug(f"Columns after resampling: {list(resampled.columns)}")
-
-    return resampled
+# REMOVED: resample_to_timeframe() - Now in core/resampler.py
 
 
 def create_strategy_components(config: dict):
@@ -119,9 +54,7 @@ def create_strategy_components(config: dict):
     entry_name = entry_config["name"]
     entry_params = entry_config.get("params", {})
 
-    if entry_name == "price_above_sma":
-        entry_strategy = PriceAboveSMA(entry_params)
-    elif entry_name == "ema_cross_sma":
+    if entry_name == "ema_cross_sma":
         entry_strategy = EMACrossSMA(entry_params)
     elif entry_name == "ema_cross_sma_cvd":
         entry_strategy = EMACrossSMACVD(entry_params)
@@ -133,11 +66,7 @@ def create_strategy_components(config: dict):
     exit_name = exit_config["name"]
     exit_params = exit_config.get("params", {})
 
-    if exit_name == "hold_bars":
-        exit_strategy = HoldBars(exit_params)
-    elif exit_name == "fixed_tp_sl":
-        exit_strategy = FixedTPSL(exit_params)
-    elif exit_name == "atr_based_exit":
+    if exit_name == "atr_based_exit":
         exit_strategy = ATRBasedExit(exit_params)
     else:
         raise ValueError(f"Unknown exit strategy: {exit_name}")
@@ -177,6 +106,9 @@ def main():
     logger.info(f"   Symbol: {symbol}")
     logger.info(f"   Strategy TF: {strategy_tf}")
 
+    # NEW: Create resampler instance
+    resampler = DataResampler()
+
     # 2. Load FULL historical data for indicators (without date filters)
     logger.info("\n📊 Loading FULL historical 1m data for indicators...")
     data_loader_full = DataLoader(config)
@@ -191,7 +123,14 @@ def main():
 
     # 3. Resample FULL data to strategy timeframe for indicators
     logger.info(f"\n🔄 Resampling FULL data to {strategy_tf} for indicators...")
-    full_data_resampled = resample_to_timeframe(full_data_1m, strategy_tf)
+
+    # FIX #1 & #2: Use DataResampler
+    full_data_resampled = resampler.resample_to_timeframe(
+        full_data_1m,
+        strategy_tf,
+        normalize_index=True,  # Fix index matching
+        quality_threshold=0.95,  # Raise error if >5% data loss
+    )
 
     # 4. Calculate indicators on FULL historical data
     logger.info("\n📈 Calculating indicators on FULL historical data...")
@@ -199,7 +138,7 @@ def main():
     indicator_configs = config.get("indicators", [])
 
     data_with_indicators_full = indicator_manager.calculate_all_indicators(
-        data=full_data_resampled,  # Full historical data
+        data=full_data_resampled,
         indicator_configs=indicator_configs,
         symbol=symbol,
         strategy_tf=strategy_tf,
@@ -209,8 +148,13 @@ def main():
 
     # 5. Load backtest window data (with date filters applied)
     logger.info("\n📊 Loading backtest window data...")
-    data_loader_window = DataLoader(config)  # Uses date filters from config
-    window_data_1m = data_loader_window.load_single_symbol(symbol)
+    data_loader_window = DataLoader(config)
+
+    # FIX #6: Normalize backtest start to midnight
+    window_data_1m = data_loader_window.load_single_symbol(
+        symbol,
+        normalize_start=True,  # NEW: Normalize to midnight
+    )
 
     logger.info(f"   Window 1m data: {len(window_data_1m)} rows")
     logger.info(
@@ -220,13 +164,30 @@ def main():
     # 6. Resample window data to strategy timeframe
     if strategy_tf != "1m":
         logger.info(f"\n🔄 Resampling window data to {strategy_tf}...")
-        window_data_resampled = resample_to_timeframe(window_data_1m, strategy_tf)
+
+        # FIX #1 & #2: Use DataResampler
+        window_data_resampled = resampler.resample_to_timeframe(
+            window_data_1m, strategy_tf, normalize_index=True
+        )
     else:
         window_data_resampled = window_data_1m
 
     # 7. Slice indicators for backtest window
-    logger.info("\n✂️  Slicing indicators for backtest window...")
-    backtest_data = data_with_indicators_full.loc[window_data_resampled.index]
+    logger.info("\n✂️ Slicing indicators for backtest window...")
+
+    # FIX #2: Use reindex with ffill for safer matching
+    backtest_data = data_with_indicators_full.reindex(
+        window_data_resampled.index, method="ffill"
+    )
+
+    # Check for missing data
+    missing_rows = backtest_data.isnull().any(axis=1).sum()
+    if missing_rows > 0:
+        logger.warning(
+            f"⚠️ {missing_rows} rows with missing indicator data after slice.\n"
+            f"   This might indicate index mismatch. Dropping incomplete rows..."
+        )
+        backtest_data = backtest_data.dropna()
 
     logger.info(
         f"   Using {len(backtest_data)}/{len(data_with_indicators_full)} bars for backtest"
@@ -236,7 +197,7 @@ def main():
     )
 
     # 8. Create strategy components
-    logger.info("\n⚙️  Creating strategy components...")
+    logger.info("\n⚙️ Creating strategy components...")
     entry_strategy, exit_strategy, risk_manager = create_strategy_components(config)
 
     # 9. Create backtest engine
@@ -250,18 +211,14 @@ def main():
     )
 
     # 10. Run backtest
-    logger.info("\n▶️  Running backtest...")
+    logger.info("\n▶️ Running backtest...")
     logger.info("=" * 60)
 
     results = engine.run()
 
     logger.info("=" * 60)
 
-    # 11. Print summary
-    logger.info("\n📊 Backtest Results:")
-    engine.print_summary(results)
-
-    # 12. Save results
+    # 11. Save results
     logger.info("\n💾 Saving results...")
     journal_writer = JournalWriter(config)
 
@@ -272,7 +229,12 @@ def main():
         if path:
             logger.info(f"   {file_type}: {path}")
 
-    logger.info("\n" + "=" * 60)
+    # 12. Print summary
+    logger.info("=" * 60)
+    logger.info("📊 Backtest Results:")
+    engine.print_summary(results)
+
+    logger.info("=" * 60)
     logger.info("🎉 BACKTEST COMPLETED SUCCESSFULLY")
     logger.info("=" * 60)
 

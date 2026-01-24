@@ -1,102 +1,141 @@
 # strategies/entry/ema_cross_sma_cvd.py
 
-from .base_entry import BaseEntryStrategy
+from typing import Dict, Any, Union
 import logging
+from core.data_window import DataWindow
+from .base_entry import BaseEntryStrategy
 
 logger = logging.getLogger(__name__)
 
 
 class EMACrossSMACVD(BaseEntryStrategy):
     """
-    Entry strategy: EMA crosses above SMA + CVD Ratio confirmation.
+    Entry strategy: EMA cross SMA + CVD confirmation.
 
-    Simple CVD Ratio logic: (BuyVolume - SellVolume) / TotalVolume * 100
-    Range: -100 (all selling) to +100 (all buying)
+    LONG Signal:
+        - EMA > SMA (bullish trend)
+        - CVD Ratio > long_threshold (buying pressure)
+
+    SHORT Signal:
+        - EMA < SMA (bearish trend)
+        - CVD Ratio < short_threshold (selling pressure)
 
     Parameters:
-        ema_period: Period for EMA (default: 59)
-        sma_period: Period for SMA (default: 200)
-        cvd_window_minutes: Rolling window for CVD ratio (default: 15)
-        cvd_ratio_threshold: Minimum CVD ratio for entry (default: 20.0)
-                           Entra long se ratio > threshold (es: > +20%)
+        ema_period: Fast EMA period
+        sma_period: Slow SMA period
+        cvd_window_minutes: CVD calculation window in minutes
+        long_threshold: CVD ratio threshold for LONG entries (default: 20.0)
+        short_threshold: CVD ratio threshold for SHORT entries (default: -20.0)
+
+    CVD Ratio Range: -100 (all selling) to +100 (all buying)
     """
 
-    def __init__(self, params: dict = None):
+    def __init__(self, params: Dict[str, Any]):
         super().__init__(params)
 
-        # Extract parameters
-        self.ema_period = self.params.get("ema_period", 59)
-        self.sma_period = self.params.get("sma_period", 200)
-        self.cvd_window_minutes = int(self.params.get("cvd_window_minutes", 15))
-        self.cvd_ratio_threshold = float(self.params.get("cvd_ratio_threshold", 20.0))
+        self.ema_period = params.get("ema_period", 59)
+        self.sma_period = params.get("sma_period", 200)
+        self.cvd_window_minutes = params.get("cvd_window_minutes", 15)
 
-        # Column names (must match config.yaml)
-        self.ema_column = f"ema_{self.ema_period}"
-        self.sma_column = f"sma_{self.sma_period}"
-        self.cvd_column = f"cvd_ratio_{self.cvd_window_minutes}m"
+        # Separate thresholds for LONG/SHORT
+        default_threshold = params.get("cvd_ratio_threshold", 20.0)
+        self.long_threshold = params.get("long_threshold", default_threshold)
+        self.short_threshold = params.get("short_threshold", -default_threshold)
 
-        logger.info(
-            f"Initialized EMACrossSMACVDRatio: "
-            f"EMA({self.ema_period}) × SMA({self.sma_period}) + "
-            f"CVD Ratio({self.cvd_window_minutes}min, threshold: +{self.cvd_ratio_threshold}%)"
-        )
-        logger.info(
-            f"Interpretation: Enter LONG when CVD Ratio > {self.cvd_ratio_threshold}% "
-            f"(meaning {self.cvd_ratio_threshold}% of recent volume is net buying)"
-        )
+        logger.info(f"Initialized {self.name}")
+        logger.info(f"  EMA: {self.ema_period}")
+        logger.info(f"  SMA: {self.sma_period}")
+        logger.info(f"  CVD Window: {self.cvd_window_minutes} minutes")
+        logger.info(f"  LONG threshold: CVD > {self.long_threshold}")
+        logger.info(f"  SHORT threshold: CVD < {self.short_threshold}")
 
-    def should_enter(self, data) -> bool:
+    def should_enter(self, data: DataWindow) -> Union[bool, Dict[str, Any]]:
         """
-        Check entry conditions:
-        1. EMA crosses above SMA (bullish crossover)
-        2. CVD Ratio > threshold (recent buying pressure)
-        """
-        # Check if we have required indicators
-        required = [self.ema_column, self.sma_column, self.cvd_column]
-        for col in required:
-            if col not in data:
-                logger.error(f"Required indicator '{col}' not found in data")
-                return False
+        Check for entry signal.
 
+        Args:
+            data: DataWindow with current market data
+
+        Returns:
+            dict with 'signal', 'direction', 'reason' if signal found
+            False if no signal
+        """
         try:
-            # 1. Check EMA/SMA crossover
-            current_ema = data[self.ema_column][0]
-            current_sma = data[self.sma_column][0]
-            prev_ema = data[self.ema_column][-1]
-            prev_sma = data[self.sma_column][-1]
+            # Get required indicators
+            ema_col = f"ema_{self.ema_period}"
+            sma_col = f"sma_{self.sma_period}"
+            cvd_col = f"cvd_ratio_{self.cvd_window_minutes}min_{data.data.columns[0].split('_')[-1]}"
 
-            # Bullish crossover: EMA crosses above SMA
-            has_crossover = (prev_ema <= prev_sma) and (current_ema > current_sma)
+            # Try to find CVD column (handle different naming)
+            available_cols = data.get_available_columns()
+            cvd_matches = [col for col in available_cols if "cvd_ratio" in col.lower()]
 
-            if not has_crossover:
+            if not cvd_matches:
+                logger.error(f"CVD ratio column not found! Available: {available_cols}")
                 return False
 
-            logger.debug(
-                f"Crossover detected: EMA {prev_ema:.4f}≤{prev_sma:.4f} → "
-                f"{current_ema:.4f}>{current_sma:.4f}"
-            )
+            cvd_col = cvd_matches[0]  # Use first match
 
-            # 2. Check CVD Ratio
-            current_cvd_ratio = data[self.cvd_column][0]
+            # Get current values
+            ema_current = data[ema_col][0]
+            sma_current = data[sma_col][0]
 
-            # Entra long se CVD ratio indica buying pressure
-            if current_cvd_ratio > self.cvd_ratio_threshold:
+            ema_prev = data[ema_col][-1]
+            sma_prev = data[sma_col][-1]
+
+            cvd_ratio = data[cvd_col][0]
+
+            isCrossBullish = ema_prev <= sma_prev and ema_current > sma_current
+            isCrossBearish = ema_prev >= sma_prev and ema_current < sma_current
+
+            # Logging
+            if isCrossBullish:
                 logger.info(
-                    f"✅ ENTRY: EMA×SMA crossover + CVD Ratio CONFIRMED "
-                    f"(ratio: {current_cvd_ratio:+.1f}% > {self.cvd_ratio_threshold:+.1f}%)"
+                    f"EMA({self.ema_period})={ema_current:.4f} > SMA({self.sma_period})={sma_current:.4f} -> Detected Bullish Cross | CVD={cvd_ratio:.1f}%"
                 )
-                return True
-            else:
+            if isCrossBearish:
                 logger.info(
-                    f"⏸️  NO ENTRY: EMA×SMA crossover but CVD Ratio WEAK "
-                    f"(ratio: {current_cvd_ratio:+.1f}% ≤ {self.cvd_ratio_threshold:+.1f}%)"
+                    f"EMA({self.ema_period})={ema_current:.4f} < SMA({self.sma_period})={sma_current:.4f} -> Detected Bearish Cross | CVD={cvd_ratio:.1f}%"
                 )
-                return False
 
-        except (IndexError, KeyError) as e:
-            logger.warning(f"Data access error in should_enter: {e}")
+            # Check for LONG signal
+            if isCrossBullish and cvd_ratio > self.long_threshold:
+                return {
+                    "signal": True,
+                    "direction": "LONG",
+                    "reason": (
+                        f"EMA({self.ema_period})={ema_current:.2f} > SMA({self.sma_period})={sma_current:.2f} "
+                        f"+ CVD={cvd_ratio:.1f}% > {self.long_threshold}"
+                    ),
+                }
+
+            # Check for SHORT signal
+            elif isCrossBearish and cvd_ratio < self.short_threshold:
+                return {
+                    "signal": True,
+                    "direction": "SHORT",
+                    "reason": (
+                        f"EMA({self.ema_period})={ema_current:.2f} < SMA({self.sma_period})={sma_current:.2f} "
+                        f"+ CVD={cvd_ratio:.1f}% < {self.short_threshold}"
+                    ),
+                }
+
             return False
 
-    def get_required_indicators(self) -> list:
-        """Return required indicator names."""
-        return [self.ema_column, self.sma_column, self.cvd_column]
+        except KeyError as e:
+            logger.error(f"Required indicator not found: {e}")
+            logger.error(f"Available columns: {data.get_available_columns()}")
+            return False
+        except Exception as e:
+            logger.error(f"Error in should_enter: {e}")
+            return False
+
+    def __str__(self):
+        return (
+            f"EMACrossSMACVD("
+            f"ema={self.ema_period}, "
+            f"sma={self.sma_period}, "
+            f"cvd_window={self.cvd_window_minutes}min, "
+            f"long>{self.long_threshold}, "
+            f"short<{self.short_threshold})"
+        )

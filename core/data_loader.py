@@ -4,6 +4,7 @@ from pathlib import Path
 import logging
 from typing import Dict, List, Optional
 import numpy as np
+from core.resampler import DataResampler  # NEW IMPORT
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +36,22 @@ class DataLoader:
         self.filter_start = period_config.get("start")
         self.filter_end = period_config.get("end")
 
+        # NEW: Create resampler instance
+        self.resampler = DataResampler()
+
         # Validate data directory exists
         if not os.path.exists(self.data_dir):
             raise FileNotFoundError(f"Data directory not found: {self.data_dir}")
 
-    def load_single_symbol(self, symbol: str) -> pd.DataFrame:
+    def load_single_symbol(
+        self, symbol: str, normalize_start: bool = False
+    ) -> pd.DataFrame:
         """
         Load data for a single symbol.
 
         Args:
             symbol: Trading symbol (e.g., 'BTCUSDT')
+            normalize_start: If True, normalize start to midnight
 
         Returns:
             DataFrame with OHLCV data, indexed by timestamp
@@ -75,8 +82,13 @@ class DataLoader:
         # Filter by date range if specified
         df = self._filter_by_date(df)
 
+        # FIX #6: Normalize start if requested
+        if normalize_start and len(df) > 0:
+            df = self.resampler.normalize_backtest_start(df, self.filter_start)
+
         logger.info(f"Loaded {len(df)} rows for {symbol}")
-        logger.info(f"Date range: {df.index[0]} to {df.index[-1]}")
+        if len(df) > 0:
+            logger.info(f"Date range: {df.index[0]} to {df.index[-1]}")
 
         return df
 

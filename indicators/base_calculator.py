@@ -50,26 +50,42 @@ class BaseCalculator(ABC):
 
     def get_cache_key(self, params: Dict[str, Any]) -> str:
         """
-        Generate unique cache key including timeframe parameter.
-        Format: sma_period200_4h_1m_a1b2c3d4
+        FIX #9: Generate unique cache key including ALL parameters.
+
+        Format: indicator_tf_param1_param2_hash
+        Example: sma_5m_p200_1a2b3c4d
+
+        Args:
+            params: Indicator parameters
+
+        Returns:
+            Unique cache key string
         """
+        # Create deterministic hash of ALL parameters
         param_str = json.dumps(params, sort_keys=True)
         param_hash = hashlib.md5(param_str.encode()).hexdigest()[:8]
 
         indicator_name = self.__class__.__name__.replace("Calculator", "").lower()
 
-        # Nome base: indicator + timeframe
-        base_key = f"{indicator_name}_{self.timeframe}"
+        # Build human-readable key with main parameters
+        key_parts = [indicator_name, self.timeframe]
 
-        # Aggiungi parametri significativi
+        # Add significant parameters to key for readability
         if "window_minutes" in params:
-            base_key = (
-                f"{indicator_name}_window{params['window_minutes']}_{self.timeframe}"
-            )
-        elif "period" in params:
-            base_key = f"{indicator_name}_period{params['period']}_{self.timeframe}"
+            key_parts.append(f"w{params['window_minutes']}")
+        if "period" in params:
+            key_parts.append(f"p{params['period']}")
+        if "use_quote" in params:
+            key_parts.append(f"q{int(params['use_quote'])}")
 
-        return f"{base_key}_{param_hash}"
+        # Add hash of ALL params for uniqueness
+        key_parts.append(param_hash)
+
+        cache_key = "_".join(key_parts)
+
+        logger.debug(f"Cache key: {cache_key} (params: {params})")
+
+        return cache_key
 
     def _resample_to_timeframe(self, data: pd.DataFrame, minutes: int) -> pd.DataFrame:
         """
@@ -305,7 +321,9 @@ class BaseCalculator(ABC):
                 if len(cached_values) == len(data) and cached_values.index.equals(
                     data.index
                 ):
-                    logger.info(f"Using cached indicator: {self.get_cache_key(params)}")
+                    logger.info(
+                        f"✅ Using cached indicator: {self.get_cache_key(params)}"
+                    )
 
                     # If column_name is provided and different from cached name, rename
                     if column_name and column_name != cached_values.name:
@@ -320,7 +338,7 @@ class BaseCalculator(ABC):
                 logger.warning(f"Cache error, recalculating: {e}")
 
         # Calculate fresh
-        logger.info(f"Calculating indicator: {self.get_cache_key(params)}")
+        logger.info(f"🔄 Calculating indicator: {self.get_cache_key(params)}")
         values = self.calculate(data, params)
 
         # Set column name if provided
