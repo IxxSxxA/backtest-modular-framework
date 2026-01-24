@@ -55,12 +55,14 @@ class BacktestEngine:
         trading_config = config.get("strategy", {}).get("trading", {})
         allow_long = trading_config.get("allow_long", True)
         allow_short = trading_config.get("allow_short", False)
+        allow_reversal = trading_config.get("allow_reversal", False)
 
         logger.info("Creating BacktestEngine from config:")
         logger.info(f"  Initial Capital: ${initial_capital:,.2f}")
         logger.info(f"  Commission: {commission*100:.3f}%")
         logger.info(f"  Lookback Window: {lookback_window} bars")
         logger.info(f"  Trading: LONG={allow_long}, SHORT={allow_short}")
+        logger.info(f"  Reversal: {allow_reversal}")
 
         return cls(
             data=data,
@@ -72,6 +74,7 @@ class BacktestEngine:
             lookback_window=lookback_window,
             allow_long=allow_long,
             allow_short=allow_short,
+            allow_reversal=allow_reversal,
         )
 
     def __init__(
@@ -85,6 +88,7 @@ class BacktestEngine:
         lookback_window: int = 100,
         allow_long: bool = True,
         allow_short: bool = False,
+        allow_reversal: bool = False,
     ):
         """
         Initialize backtesting engine.
@@ -99,6 +103,7 @@ class BacktestEngine:
             lookback_window: Number of candles to keep in memory window
             allow_long: Allow LONG positions
             allow_short: Allow SHORT positions
+            allow_reversal: If true, reverse position immediately on opposite signal
         """
         self.data = data
         self.entry_strategy = entry_strategy
@@ -111,6 +116,7 @@ class BacktestEngine:
         # NEW: Trading direction settings
         self.allow_long = allow_long
         self.allow_short = allow_short
+        self.allow_reversal = allow_reversal
 
         # Validate trading direction
         if not allow_long and not allow_short:
@@ -135,6 +141,7 @@ class BacktestEngine:
         logger.info(f"  Exit strategy: {exit_strategy}")
         logger.info(f"  Risk manager: {self.risk_manager.name}")
         logger.info(f"  Trading directions: LONG={allow_long}, SHORT={allow_short}")
+        logger.info(f"  Position reversal: {allow_reversal}")
 
     def run(self) -> Dict[str, Any]:
         """
@@ -203,7 +210,37 @@ class BacktestEngine:
                         )
 
             else:
-                # Check for exit signal
+                # Position is OPEN - check for exit OR reversal
+                current_position_type = self.position["position_type"]
+
+                # Check for REVERSAL signal first (if enabled)
+                if self.allow_reversal:
+                    entry_signal = self.entry_strategy.should_enter(data_window)
+
+                    if entry_signal:
+                        if isinstance(entry_signal, dict):
+                            new_direction = entry_signal.get("direction", "LONG")
+                        else:
+                            new_direction = "LONG"
+
+                        # Check if signal is OPPOSITE to current position
+                        is_opposite = (
+                            current_position_type == "long" and new_direction == "SHORT"
+                        ) or (
+                            current_position_type == "short" and new_direction == "LONG"
+                        )
+
+                        if is_opposite:
+                            # REVERSAL: Close current + Open opposite
+                            logger.info(
+                                f"🔄 REVERSAL SIGNAL: {current_position_type.upper()} → {new_direction}"
+                            )
+                            self._reverse_position(i, data_window, new_direction)
+                            # Skip exit check - we already handled the position
+                            self._update_equity(i, current_price)
+                            continue
+
+                # Normal exit check (if no reversal happened)
                 should_exit, exit_reason = self.exit_strategy.should_exit(
                     data_window,
                     self.position["entry_price"],
@@ -391,6 +428,42 @@ class BacktestEngine:
 
         self.position = None
 
+    def _reverse_position(
+        self, index: int, data_window: DataWindow, new_direction: str
+    ):
+        """
+        Reverse current position: close existing and open opposite direction.
+        This is atomic to avoid being out of market.
+
+        Args:
+            index: Current candle index
+            data_window: Current market data
+            new_direction: New position direction (LONG or SHORT)
+        """
+        if self.position is None:
+            logger.warning("Attempted to reverse but no position is open")
+            return
+
+        current_price = data_window["close"][0]
+        current_time = data_window.get_timestamp()
+
+        old_direction = self.position["position_type"]
+
+        logger.info(
+            f"🔄 REVERSING POSITION: {old_direction.upper()} → {new_direction} "
+            f"at {current_time} | Price: ${current_price:.2f}"
+        )
+
+        # Step 1: Close existing position (record as reversal exit)
+        self._exit_position(index, data_window, f"REVERSAL_TO_{new_direction}")
+
+        # Step 2: Immediately open new position in opposite direction
+        self._enter_position(index, data_window, new_direction)
+
+        logger.info(
+            f"✅ Reversal completed: Now {new_direction} at ${current_price:.2f}"
+        )
+
     def _update_journal(self, index: int, data_window: DataWindow):
         """Update trading journal with current state."""
         current_price = data_window["close"][0]
@@ -501,6 +574,14 @@ class BacktestEngine:
         winning_trades = sum(1 for t in self.trades if t["net_pnl"] > 0)
         losing_trades = total_trades - winning_trades
 
+        # NEW: Count reversal trades
+        reversal_trades = sum(
+            1 for t in self.trades if "REVERSAL" in t.get("exit_reason", "")
+        )
+        reversal_pnl = sum(
+            t["net_pnl"] for t in self.trades if "REVERSAL" in t.get("exit_reason", "")
+        )
+
         total_net_pnl = sum(t["net_pnl"] for t in self.trades)
         total_gross_pnl = sum(t["gross_pnl"] for t in self.trades)
         total_commission = sum(
@@ -541,6 +622,8 @@ class BacktestEngine:
             "winning_trades": winning_trades,
             "losing_trades": losing_trades,
             "win_rate": win_rate,
+            "reversal_trades": reversal_trades,
+            "reversal_pnl": reversal_pnl,
             "initial_capital": self.initial_capital,
             "final_available_balance": self.capital,
             "final_total_equity": final_equity,
@@ -590,5 +673,10 @@ class BacktestEngine:
             f"  Winning Trades:  {results['winning_trades']} ({results['win_rate']:.1f}%)"
         )
         print(f"  Profit Factor:   {results['profit_factor']:.2f}")
+
+        if results.get("reversal_trades", 0) > 0:
+            print(f"\n🔄 Reversal Statistics:")
+            print(f"  Reversal Trades: {results['reversal_trades']}")
+            print(f"  Reversal P&L:    ${results['reversal_pnl']:+.2f}")
 
         print("=" * 60)

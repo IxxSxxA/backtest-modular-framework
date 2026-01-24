@@ -7,7 +7,7 @@ backtest:
   # Test period (optional - uses all data if omitted)
   # Start will be automatically normalized to midnight (00:00)
   period:
-    start: "2026-01-16"
+    start: "2026-01-20"
     end: "2026-01-22"
   
   # Initial capital
@@ -33,6 +33,8 @@ data:
   source_file: "XPLUSDT-1m-2025-2026-01-22"
 
 # === STRATEGY CONFIGURATION ===
+# This is the heartbeat of the framework -> It's like Chart TF  in TradingView
+# Strategies run on this timeframe
 strategy:
   timeframe: "5m"
   
@@ -43,18 +45,21 @@ strategy:
     allow_long: true   # Enable LONG positions
     allow_short: true  # Enable SHORT positions
     # Set both to true to test market-neutral strategy
+    
+    # Position Reversal Settings
+    allow_reversal: true  # Enable position reversal
+    # If false, wait for SL/TP before allowing opposite direction
   
   entry:
     name: "ema_cross_sma_cvd"
     params:
       ema_period: 59
       sma_period: 200
-      cvd_window_minutes: 5
-      
+
+      #cvd_window_minutes: 15      
       # Separate thresholds for LONG/SHORT
-      long_threshold: 3.0   # Enter LONG when CVD > +20%
-      short_threshold: -3.0 # Enter SHORT when CVD < -20%
-      
+      long_threshold: 7.0   # Enter LONG when CVD > +20%
+      short_threshold: -7.0 # Enter SHORT when CVD < -20%      
       # CVD Ratio Range: -100 (all selling) to +100 (all buying)
       # +20% = 20% net buying pressure
       # -20% = 20% net selling pressure
@@ -62,9 +67,9 @@ strategy:
   exit:
     name: "atr_based_exit"
     params:
-      atr_period: 14
-      tp_multiplier: 9.0
-      sl_multiplier: 5.5
+      atr_period: 21
+      tp_multiplier: 9.5
+      sl_multiplier: 5
   
   risk:
     name: "fixed_percent"
@@ -85,8 +90,10 @@ indicators:
   
   # ATR for exit strategy
   - name: "atr"
-    params: {period: 14}
-    column: "atr_14"
+    params: 
+      period: 21
+      method: "wilder"  # Metodo originale (più accurato)
+    column: "atr_21"
   
   # CVD Ratio - Volume Delta Indicator
   - name: "cvdratio"

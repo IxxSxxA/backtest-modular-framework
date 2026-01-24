@@ -9,100 +9,67 @@ logger = logging.getLogger(__name__)
 
 class EMACalculator(BaseCalculator):
     """
-    Exponential Moving Average calculator with multi-timeframe support.
+    Exponential Moving Average calculator.
+
+    Calculates EMA on the data's current timeframe (already resampled by framework).
 
     Parameters:
-        period: Number of periods for EMA
-        column: Price column to use (default: 'close')
-        tf: Target timeframe for calculation (e.g., '1h', '4h', '1d')
+        period: Number of periods for EMA calculation
+        adjust: Use adjusted calculation (default: False)
 
-    Calculation Logic:
-        - If tf='1m' or not specified: EMA calculated directly on 1m data
-        - If tf='1h':
-          1. Resample 1m data to 1h OHLC
-          2. Calculate EMA on resampled 1h data
-          3. Forward-fill values to 1m (constant for 60 minutes)
+    Note: Data is already resampled to strategy timeframe by the framework.
     """
 
     def calculate(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.Series:
         """
-        Calculate Exponential Moving Average with timeframe support.
+        Calculate Exponential Moving Average.
+
+        Args:
+            data: DataFrame with OHLC data (already at strategy timeframe)
+            params: Dictionary with 'period' and optional 'adjust'
+
+        Returns:
+            Series with EMA values
         """
-        # Get parameters
-        period = int(params.get("period", 14))
-        price_column = str(params.get("column", "close"))
-        target_tf = params.get("tf", "1m")
+        period = int(params.get("period", 20))
+        adjust = params.get("adjust", False)  # Standard EMA uses adjust=False
 
         if period <= 0:
             raise ValueError(f"Invalid period for EMA: {period}")
 
-        if price_column not in data.columns:
-            available = list(data.columns)
+        if period > len(data):
+            logger.warning(
+                f"EMA period ({period}) is larger than data length ({len(data)}). "
+                f"First {period} values will be NaN."
+            )
+
+        # Check for required column
+        if "close" not in data.columns:
             raise ValueError(
-                f"Price column '{price_column}' not found in data. "
-                f"Available columns: {available}"
+                f"Column 'close' not found in data. " f"Available: {list(data.columns)}"
             )
 
         logger.info(
-            f"Calculating EMA({period}) on {price_column} "
-            f"for {self.symbol} (target TF: {target_tf})"
+            f"Calculating EMA({period}) for {self.symbol} on {self.timeframe} "
+            f"(adjust={adjust})"
         )
 
-        # Decide calculation method based on target timeframe
-        if target_tf == "1m":
-            # Direct calculation on 1m data
-            ema_values = self._calculate_ema_direct(data, price_column, period)
-            ema_values.name = f"ema_{period}_1m"
-        else:
-            # Calculate on higher timeframe, then forward-fill to 1m
-            ema_values = self._calculate_ema_resampled(
-                data, price_column, period, target_tf
-            )
-            ema_values.name = f"ema_{period}_{target_tf}"
+        # Calculate EMA
+        # span=period gives same smoothing as alpha = 2/(period+1)
+        ema = data["close"].ewm(span=period, min_periods=period, adjust=adjust).mean()
 
-        return ema_values
+        # Set name
+        ema.name = f"ema_{period}"
 
-    def _calculate_ema_direct(
-        self, data: pd.DataFrame, price_column: str, period: int
-    ) -> pd.Series:
-        """Calculate EMA directly on 1m data."""
-        ema = data[price_column].ewm(span=period, min_periods=1, adjust=False).mean()
+        logger.debug(
+            f"EMA stats: min={ema.min():.4f}, "
+            f"max={ema.max():.4f}, "
+            f"mean={ema.mean():.4f}, "
+            f"first_valid={ema.first_valid_index()}"
+        )
 
         return ema
 
-    def _calculate_ema_resampled(
-        self, data: pd.DataFrame, price_column: str, period: int, target_tf: str
-    ) -> pd.Series:
-        """
-        Calculate EMA on resampled data, then forward-fill to 1m.
-        """
-        # Get minutes per candle for target timeframe
-        if target_tf not in self.TF_TO_MINUTES:
-            raise ValueError(
-                f"Unsupported timeframe: {target_tf}. "
-                f"Supported: {list(self.TF_TO_MINUTES.keys())}"
-            )
-
-        minutes_per_candle = self.TF_TO_MINUTES[target_tf]
-
-        # 1. Resample 1m data to target timeframe
-        logger.debug(f"Resampling 1m → {target_tf} ({minutes_per_candle} minutes)")
-        resampled = self._resample_to_timeframe(data, minutes_per_candle)
-
-        # 2. Calculate EMA on resampled data
-        ema_resampled = (
-            resampled["close"].ewm(span=period, min_periods=1, adjust=False).mean()
-        )
-
-        # 3. Forward-fill EMA values to match original 1m index
-        ema_1m = self._forward_fill_to_1m(
-            indicator_series=ema_resampled,
-            original_index=data.index,
-            minutes_per_candle=minutes_per_candle,
-        )
-
-        return ema_1m
-
-    def get_required_columns(self) -> list:
-        """Return list of required columns from input data."""
-        return ["close"]  # Default, can be overridden by params['column']
+        def get_required_columns(self) -> list:
+            """Return list of required columns from input data."""
+            return ["high", "low", "close"]

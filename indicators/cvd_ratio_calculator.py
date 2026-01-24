@@ -36,8 +36,8 @@ class CVDRatioCalculator(BaseCalculator):
             f"(window: {window_minutes}min, data TF: {self.timeframe})"
         )
 
-        # IMPORTANTE: window_minutes sono MINUTI REALI, non candele!
-        # Se siamo su timeframe 5m, 15 minuti = 3 candele
+        # IMPORTANT -> window_minutes are real minutes, not candles
+        # If we're on 5m timeframe, 15 minutes = 3 candles
         minutes_per_candle = self.TF_TO_MINUTES.get(self.timeframe, 1)
         window_candles = max(1, window_minutes // minutes_per_candle)
 

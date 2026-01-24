@@ -85,8 +85,8 @@ class EMACrossSMACVD(BaseEntryStrategy):
 
             cvd_ratio = data[cvd_col][0]
 
-            isCrossBullish = ema_prev <= sma_prev and ema_current > sma_current
-            isCrossBearish = ema_prev >= sma_prev and ema_current < sma_current
+            isCrossBullish = ema_prev < sma_prev and ema_current >= sma_current
+            isCrossBearish = ema_prev > sma_prev and ema_current <= sma_current
 
             # Logging
             if isCrossBullish:

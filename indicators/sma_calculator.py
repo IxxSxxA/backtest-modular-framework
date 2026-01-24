@@ -7,117 +7,68 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# SMA Calculator
+# ============================================================================
+
+
 class SMACalculator(BaseCalculator):
     """
-    Simple Moving Average calculator with multi-timeframe support.
+    Simple Moving Average calculator.
+
+    Calculates SMA on the data's current timeframe (already resampled by framework).
 
     Parameters:
-        period: Number of periods for SMA
-        column: Price column to use (default: 'close')
-        tf: Target timeframe for calculation (e.g., '1h', '4h', '1d')
-            If not specified, calculates on 1m data
+        period: Number of periods for SMA calculation
 
-    Calculation Logic:
-        - If tf='1m' or not specified: SMA calculated directly on 1m data
-        - If tf='4h':
-          1. Resample 1m data to 4h OHLC
-          2. Calculate SMA on resampled 4h data
-          3. Forward-fill values to 1m (constant for 240 minutes)
-
-    Cache Note:
-        SMA 200 on 4h has different cache key from SMA 200 on 1m
+    Note: Data is already resampled to strategy timeframe by the framework.
     """
 
     def calculate(self, data: pd.DataFrame, params: Dict[str, Any]) -> pd.Series:
         """
-        Calculate Simple Moving Average with timeframe support.
+        Calculate Simple Moving Average.
+
+        Args:
+            data: DataFrame with OHLC data (already at strategy timeframe)
+            params: Dictionary with 'period'
+
+        Returns:
+            Series with SMA values
         """
-        # Get parameters
         period = int(params.get("period", 20))
-        price_column = str(params.get("column", "close"))
-        target_tf = params.get("tf", "1m")
 
         if period <= 0:
             raise ValueError(f"Invalid period for SMA: {period}")
 
-        if price_column not in data.columns:
-            available = list(data.columns)
+        if period > len(data):
+            logger.warning(
+                f"SMA period ({period}) is larger than data length ({len(data)}). "
+                f"First {period} values will be NaN."
+            )
+
+        # Check for required column
+        if "close" not in data.columns:
             raise ValueError(
-                f"Price column '{price_column}' not found in data. "
-                f"Available columns: {available}"
+                f"Column 'close' not found in data. " f"Available: {list(data.columns)}"
             )
 
-        logger.info(
-            f"Calculating SMA({period}) on {price_column} "
-            f"for {self.symbol} (target TF: {target_tf})"
+        logger.info(f"Calculating SMA({period}) for {self.symbol} on {self.timeframe}")
+
+        # Calculate SMA
+        sma = data["close"].rolling(window=period, min_periods=period).mean()
+
+        # Set name
+        sma.name = f"sma_{period}"
+
+        logger.debug(
+            f"SMA stats: min={sma.min():.4f}, "
+            f"max={sma.max():.4f}, "
+            f"mean={sma.mean():.4f}, "
+            f"first_valid={sma.first_valid_index()}"
         )
-
-        # Decide calculation method based on target timeframe
-        if target_tf == "1m":
-            # Direct calculation on 1m data
-            sma_values = self._calculate_sma_direct(data, price_column, period)
-            sma_values.name = f"sma_{period}_1m"
-        else:
-            # Calculate on higher timeframe, then forward-fill to 1m
-            sma_values = self._calculate_sma_resampled(
-                data, price_column, period, target_tf
-            )
-            sma_values.name = f"sma_{period}_{target_tf}"
-
-        return sma_values
-
-    def _calculate_sma_direct(
-        self, data: pd.DataFrame, price_column: str, period: int
-    ) -> pd.Series:
-        """Calculate SMA directly on 1m data."""
-        sma = data[price_column].rolling(window=period, min_periods=1).mean()
-
-        # For the first period-1 values, use expanding mean
-        if period > 1:
-            sma.iloc[: period - 1] = (
-                data[price_column].expanding(min_periods=1).mean().iloc[: period - 1]
-            )
 
         return sma
 
-    def _calculate_sma_resampled(
-        self, data: pd.DataFrame, price_column: str, period: int, target_tf: str
-    ) -> pd.Series:
-        """
-        Calculate SMA on resampled data, then forward-fill to 1m.
-        """
-        # Get minutes per candle for target timeframe
-        if target_tf not in self.TF_TO_MINUTES:
-            raise ValueError(
-                f"Unsupported timeframe: {target_tf}. "
-                f"Supported: {list(self.TF_TO_MINUTES.keys())}"
-            )
-
-        minutes_per_candle = self.TF_TO_MINUTES[target_tf]
-
-        # 1. Resample 1m data to target timeframe
-        logger.debug(f"Resampling 1m → {target_tf} ({minutes_per_candle} minutes)")
-        resampled = self._resample_to_timeframe(data, minutes_per_candle)
-
-        # 2. Calculate SMA on resampled data
-        # Note: Use 'close' price from resampled OHLC
-        sma_resampled = resampled["close"].rolling(window=period, min_periods=1).mean()
-
-        # Handle first period-1 values
-        if period > 1:
-            sma_resampled.iloc[: period - 1] = (
-                resampled["close"].expanding(min_periods=1).mean().iloc[: period - 1]
-            )
-
-        # 3. Forward-fill SMA values to match original 1m index
-        sma_1m = self._forward_fill_to_1m(
-            indicator_series=sma_resampled,
-            original_index=data.index,
-            minutes_per_candle=minutes_per_candle,
-        )
-
-        return sma_1m
-
-    def get_required_columns(self) -> list:
-        """Return list of required columns from input data."""
-        return ["close"]  # Default, can be overridden by params['column']
+        def get_required_columns(self) -> list:
+            """Return list of required columns from input data."""
+            return ["high", "low", "close"]
