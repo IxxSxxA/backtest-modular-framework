@@ -314,9 +314,9 @@ class JournalWriter:
                 for i, trade in enumerate(results["trades"][-5:], 1):
                     symbol = "✅" if trade["net_pnl"] > 0 else "❌"
                     f.write(
-                        f"{i}. {symbol} Entry: ${trade['entry_price']:.2f} → "
-                        f"Exit: ${trade['exit_price']:.2f} "
-                        f"({trade['net_pnl_percent']:+.2f}%) - {trade['exit_reason']}\n"
+                        f"{i}. {symbol} Entry: ${trade['entry_price']:.4f} → "
+                        f"Exit: ${trade['exit_price']:.4f} "
+                        f"({trade['net_pnl_percent']:+.4f}%) - {trade['exit_reason']}\n"
                     )
 
             f.write("\n" + "=" * 80 + "\n")

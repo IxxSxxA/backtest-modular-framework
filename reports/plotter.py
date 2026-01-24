@@ -340,7 +340,7 @@ class BacktestPlotter:
         full_data_df: pd.DataFrame = None,
     ) -> Path:
         """
-        Plot price with indicators and signals - COMPLETE VERSION.
+        Plot price with indicators and signals - NOW WITH SEPARATE PANELS.
 
         Args:
             journal: Trading journal entries
@@ -383,20 +383,30 @@ class BacktestPlotter:
         run_dir = Path(save_path).parent
         run_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create figure with 2 subplots: price + position
+        # Get plotting configuration
         plotting_config = config.get("plotting", {})
-        height_ratios = [
-            plotting_config.get("layout", {}).get("price_height_ratio", 3),
-            plotting_config.get("layout", {}).get("position_height_ratio", 1),
-        ]
+
+        # Calculate number of panels
+        separate_panels = plotting_config.get("separate_panels", [])
+        n_panels = 2  # Price + Position (base panels)
+        if separate_panels:
+            n_panels += len(separate_panels)
+
+        # Define height ratios
+        # Price panel gets 3, position gets 1, each separate panel gets 1
+        height_ratios = [3, 1] + [1] * len(separate_panels)
 
         fig, axes = plt.subplots(
-            2,
+            n_panels,
             1,
-            figsize=(14, 10),
+            figsize=(14, 3 * n_panels),
             gridspec_kw={"height_ratios": height_ratios},
             sharex=True,
-        )  # Share x-axis for better alignment
+        )
+
+        # Ensure axes is always a list
+        if n_panels == 1:
+            axes = [axes]
 
         # Plot 1: Price chart with indicators OVERLAID
         ax_price = axes[0]
@@ -406,15 +416,19 @@ class BacktestPlotter:
         ax_position = axes[1]
         self._plot_position_chart(ax_position, journal_df, trades)
 
+        # Plot 3+: Separate panels for oscillators
+        for i, panel_config in enumerate(separate_panels):
+            ax_panel = axes[2 + i]
+            self._plot_separate_panel(ax_panel, journal_df, panel_config, config)
+
         # Format x-axis for bottom plot only
+        ax_bottom = axes[-1]
         if "timestamp" in journal_df.columns:
-            ax_position.xaxis.set_major_formatter(
-                mdates.DateFormatter("%Y-%m-%d %H:%M")
-            )
-            plt.setp(ax_position.xaxis.get_majorticklabels(), rotation=45, ha="right")
-            ax_position.set_xlabel("Time", fontsize=10)
+            ax_bottom.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
+            plt.setp(ax_bottom.xaxis.get_majorticklabels(), rotation=45, ha="right")
+            ax_bottom.set_xlabel("Time", fontsize=10)
         else:
-            ax_position.set_xlabel("Candle Index", fontsize=10)
+            ax_bottom.set_xlabel("Candle Index", fontsize=10)
 
         plt.tight_layout()
 
@@ -430,15 +444,106 @@ class BacktestPlotter:
 
         return save_path
 
-    def _plot_price_chart_with_indicators(self, ax, journal_df, trades, config):
+    def _plot_separate_panel(self, ax, journal_df, panel_config, config):
         """
-        Plot price chart with entry/exit signals AND indicators on same axis.
+        Plot a separate panel for oscillators or other indicators.
 
         Args:
             ax: Matplotlib axis
             journal_df: Journal DataFrame
-            trades: List of trades
-            config: Configuration dict (for indicator settings)
+            panel_config: Configuration for this panel
+            config: Full configuration dict
+        """
+        # Determine x-axis (timestamp or index)
+        if "timestamp" in journal_df.columns:
+            journal_df["timestamp"] = pd.to_datetime(journal_df["timestamp"])
+            x_axis = journal_df["timestamp"]
+        else:
+            x_axis = journal_df.index
+
+        # Get indicator column name
+        column_name = panel_config.get("column")
+        label = panel_config.get("label", column_name)
+
+        if not column_name:
+            logger.warning(f"Panel config missing column name: {panel_config}")
+            return
+
+        # Get indicator data
+        indicator_data = self._load_indicator_data_for_panel(
+            journal_df, panel_config, config
+        )
+
+        if indicator_data is None or indicator_data.empty:
+            logger.warning(f"No data for panel indicator: {column_name}")
+            ax.text(
+                0.5,
+                0.5,
+                f"No data: {label}",
+                transform=ax.transAxes,
+                ha="center",
+                va="center",
+            )
+            return
+
+        # Plot the indicator
+        color = panel_config.get("color", "#8E44AD")
+        linewidth = panel_config.get("linewidth", 1.5)
+        alpha = panel_config.get("alpha", 0.7)
+
+        ax.plot(
+            x_axis,
+            indicator_data,
+            color=color,
+            linewidth=linewidth,
+            alpha=alpha,
+            label=label,
+        )
+
+        # Add zero line for oscillators
+        if panel_config.get("zero_line", False):
+            ax.axhline(y=0, color="gray", linestyle="--", alpha=0.5, linewidth=0.8)
+
+        # Add threshold line if this is CVD ratio
+        if "cvd_ratio" in column_name.lower():
+            # Try to get threshold from strategy config
+            strategy_config = config.get("strategy", {})
+            entry_config = strategy_config.get("entry", {})
+            params = entry_config.get("params", {})
+
+            if "cvd_ratio_threshold" in params:
+                threshold = params["cvd_ratio_threshold"]
+                ax.axhline(
+                    y=threshold,
+                    color="orange",
+                    linestyle=":",
+                    alpha=0.7,
+                    linewidth=1.2,
+                    label=f"Threshold ({threshold}%)",
+                )
+
+        # Set Y limits if specified
+        ylim = panel_config.get("ylim")
+        if ylim:
+            if isinstance(ylim, list):
+                if ylim[1] == "auto":
+                    # Auto-scale with some padding
+                    data_min = indicator_data.min()
+                    data_max = indicator_data.max()
+                    padding = (data_max - data_min) * 0.1
+                    ax.set_ylim(ylim[0], data_max + padding)
+                else:
+                    ax.set_ylim(ylim[0], ylim[1])
+
+        # Configure axis
+        ax.set_ylabel(label, fontsize=10)
+        ax.legend(loc="upper left", fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+    def _plot_price_chart_with_indicators(self, ax, journal_df, trades, config):
+        """
+        Plot price chart with entry/exit signals AND indicators on same axis.
+        EXCLUDE indicators that are marked for separate panels.
         """
         # Determine x-axis (timestamp or index)
         if "timestamp" in journal_df.columns:
@@ -465,14 +570,22 @@ class BacktestPlotter:
         # Load indicators from pre-loaded DataFrame
         indicator_data = self._load_indicator_data(journal_df, config)
 
-        # Plot each indicator
+        # Get list of indicators that should be in separate panels
         plotting_config = config.get("plotting", {})
+        separate_panels = plotting_config.get("separate_panels", [])
+        separate_columns = [panel.get("column") for panel in separate_panels]
+
+        # Plot each indicator (EXCLUDING those in separate panels)
         indicators_to_plot = plotting_config.get("indicators_to_plot", [])
 
         for idx, indicator_config in enumerate(indicators_to_plot):
-            expected_label = indicator_config.get(
-                "label", indicator_config.get("column", f"Indicator {idx+1}")
-            )
+            column_name = indicator_config.get("column")
+            expected_label = indicator_config.get("label", column_name)
+
+            # Skip if this indicator goes in separate panel
+            if column_name in separate_columns:
+                logger.debug(f"Skipping '{column_name}' - goes in separate panel")
+                continue
 
             if expected_label in indicator_data:
                 indicator_series = indicator_data[expected_label]
@@ -483,9 +596,7 @@ class BacktestPlotter:
                     continue
 
                 # Get styling from config or use defaults
-                color = indicator_config.get(
-                    "color", f"C{idx}"
-                )  # Use matplotlib default colors
+                color = indicator_config.get("color", f"C{idx}")
                 linewidth = indicator_config.get("linewidth", 2.0)
                 alpha = indicator_config.get("alpha", 0.8)
                 linestyle = indicator_config.get("linestyle", "-")
@@ -687,6 +798,58 @@ class BacktestPlotter:
             logger.debug(f"Aligned '{label}' to {len(aligned_series)} journal points")
 
         return indicator_data
+
+    def _load_indicator_data_for_panel(self, journal_df, panel_config, config):
+        """
+        Load indicator data specifically for separate panel plotting.
+
+        Args:
+            journal_df: Journal DataFrame (for length reference)
+            panel_config: Panel configuration dict
+            config: Full configuration dict
+
+        Returns:
+            pandas Series with indicator data aligned to journal timeline
+        """
+        if self.full_data_df is None:
+            logger.warning("No full data DataFrame available for panel plotting")
+            return None
+
+        column_name = panel_config.get("column")
+
+        if column_name not in self.full_data_df.columns:
+            logger.warning(f"Indicator column '{column_name}' not found in data")
+            return None
+
+        # Get journal timeline
+        if "timestamp" in journal_df.columns:
+            x_axis = pd.to_datetime(journal_df["timestamp"])
+        else:
+            x_axis = journal_df.index
+
+        # Get indicator values
+        indicator_series = self.full_data_df[column_name]
+
+        # Align to journal timeline
+        aligned_series = pd.Series(index=x_axis, dtype=float)
+
+        for i, ts in enumerate(x_axis):
+            if ts in indicator_series.index:
+                aligned_series.iloc[i] = indicator_series[ts]
+            else:
+                # Find nearest value
+                try:
+                    idx = indicator_series.index.get_indexer([ts], method="nearest")[0]
+                    aligned_series.iloc[i] = indicator_series.iloc[idx]
+                except:
+                    aligned_series.iloc[i] = np.nan
+
+        # Fill any remaining NaN
+        aligned_series = aligned_series.ffill().bfill()
+
+        logger.debug(f"Aligned '{column_name}' to {len(aligned_series)} journal points")
+
+        return aligned_series
 
     def _plot_position_chart(self, ax, journal_df, trades):
         """

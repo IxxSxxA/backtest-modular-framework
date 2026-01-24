@@ -1,4 +1,8 @@
-# Strategies package
-from .entry.base_entry import BaseEntryStrategy
+# strategies/__init__.py
 
-__all__ = ['BaseEntryStrategy']
+"""
+Trading strategies package.
+Contains entry, exit, and risk management strategies.
+"""
+
+__all__ = ["entry", "exit", "risk"]

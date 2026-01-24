@@ -100,7 +100,7 @@ class IndicatorManager:
         data: pd.DataFrame,
         indicator_config: Dict[str, Any],
         symbol: str,
-        strategy_tf: str,  # ✅ RENAMED from timeframe
+        strategy_tf: str,  # Just this one
     ) -> pd.Series:
         """
         Calculate indicator based on configuration.
@@ -109,7 +109,8 @@ class IndicatorManager:
             data: DataFrame with OHLCV data (already resampled to strategy_tf)
             indicator_config: Config dict with name, params, column
             symbol: Trading symbol
-            strategy_tf: Strategy timeframe (e.g., "4h")
+
+            strategy_tf: Strategy timeframe (e.g., "4h") -> NOT USED -> Maybe for MultiTF in future?
 
         Returns:
             Series with indicator values
@@ -118,7 +119,7 @@ class IndicatorManager:
         params = indicator_config.get("params", {})
         column_name = indicator_config.get("column")
 
-        params["tf"] = strategy_tf
+        # params["tf"] = strategy_tf
 
         # Get calculator
         CalculatorClass = self.calculators.get(indicator_name)

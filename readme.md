@@ -127,12 +127,15 @@ Fixed calculations, consistency checks, detailed logging, calculation reference.
 - ✅ Add examples/concepts for future new multi-TF system
 
 ### **📋 PHASE 4.C: ENHANCED FEATURES** 
-- [ ] Multiple entry/exit strategies
-- [ ] Multi-asset support
+- ✅ Advanced strategies -> ema_cross_sma_cvd.py
 - [ ] Walk-forward testing
 - [ ] Monte Carlo simulations
 - [ ] Parameter optimization
 - [ ] Advanced risk metrics
+
+### **📋 PHASE 4.D: ENHANCED FEATURES** 
+- [ ] Multiple entry/exit strategies
+- [ ] Multi-asset support
 
 ### **📋 PHASE 5: PRODUCTION READY**
 - [ ] Robust error handling

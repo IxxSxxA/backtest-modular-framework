@@ -5,9 +5,9 @@
 # === BACKTEST SETTINGS ===
 backtest:
   # Test period (optional - uses all data if omitted)
-  period:
-    start: "2025-12-01"
-    end: "2026-01-22"
+  # period:
+  #   start: "2025-12-01"
+  #   end: "2026-01-22"
   
   # Initial capital
   capital:
@@ -30,78 +30,82 @@ data:
   source_dir: "data/raw"                         # Directory with parquet files
   source_file: "XPLUSDT-1m-2025-2026-01-22"     # Filename without .parquet extension
 
-
 # === STRATEGY CONFIGURATION ===
 strategy:
-  timeframe: "1h"          # ✅ Strategy timeframe (controls everything)
+  timeframe: "5m"
   
-  # Entry strategy
   entry:
-    name: "price_above_sma"
+    name: "ema_cross_sma_cvd"
     params:
-      sma_column: "sma_200"  # ✅ Reference to indicator column
-      lookback: 1
+      ema_period: 59
+      sma_period: 200
+      cvd_window_minutes: 15      # Finestra rolling in minuti
+      cvd_ratio_threshold: 20.0   # Entra long se ratio > +20%
+      # CVD ratio range: -100 (tutto selling) a +100 (tutto buying)
+      # +20% = 20% di volume netto è buying
   
-  # Exit strategy
   exit:
-    name: "hold_bars"
+    name: "atr_based_exit"
     params:
-      bars: 100
+      atr_period: 14
+      tp_multiplier: 9.0
+      sl_multiplier: 5.5
   
-  # Risk management
   risk:
     name: "fixed_percent"
     params:
-      risk_per_trade: 0.02   # Risk 2% of equity per trade
-      max_drawdown: 0.15     # Optional: stop trading if DD > 15%
-
+      risk_per_trade: 0.02
+      max_drawdown: 0.15
 
 # === INDICATORS ===
-# All calculated at strategy.timeframe
 indicators:
+  # Medie mobili
+  - name: "ema"
+    params: {period: 59}
+    column: "ema_59"
+  
   - name: "sma"
     params: {period: 200}
-    column: "sma_200"        # ✅ Column name (strategy references this)
+    column: "sma_200"
   
-  # - name: "sma"
-  #   params: {period: 50}
-  #   column: "sma_50"
+  # ATR per exit
+  - name: "atr"
+    params: {period: 14}
+    column: "atr_14"
   
-  # - name: "atr"
-  #   params: {period: 14}
-  #   column: "atr_14"
+  # CVD RATIO - Nuovo indicatore semplice
+  - name: "cvdratio"
+    params:
+      window_minutes: 15
+      use_quote: false
+    column: "cvd_ratio_15m"
 
-
-# === OUTPUT SETTINGS ===
-output:
-  # Journal (trades, equity, etc.)
-  journal:
-    save_dir: "data/journals/"
-    # filename_template: "{symbol}_{strategy_tf}_{entry}_{timestamp}"
-  
-  # Plots configuration
-  plots:
-    enabled: true
-    save_dir: "data/plots/"
-
-
-# === PLOTTING CONFIGURATION ===
-# Kept at root level for simplicity
-# For simplicity at the moment this section must match with the above indicators
+# === PLOTTING ===
 plotting:
   # Indicators to plot (overlaid on price chart)
   indicators_to_plot:
-    - column: "sma_200"
-      label: "SMA 200"
-      color: "#ff0000"
+    - column: "ema_59"
+      label: "EMA 59 (5m)"
+      color: "#0052CC"
       linewidth: 2
-      alpha: 1.0
+      alpha: 0.8
     
-    # - column: "sma_50"
-    #   label: "SMA 50"
-    #   color: "#0000ff"
-    #   linewidth: 1.5
-    #   alpha: 0.8
+    - column: "sma_200"
+      label: "SMA 200 (5m)"
+      color: "#FF6B00"
+      linewidth: 2
+      alpha: 0.8
+  
+  # SEPARATE PANELS (oscillators, volume, etc.)
+  separate_panels:
+    - column: "cvd_ratio_15m"
+      label: "CVD Ratio 15m"
+      color: "#8E44AD"
+      linewidth: 1.5
+      alpha: 0.7
+      type: "oscillator"
+      ylim: [-100, 100]            # Fixed range for CVD ratio
+      zero_line: true              # Show zero line
   
   # Layout configuration
   layout:

@@ -14,9 +14,9 @@ from core.engine import BacktestEngine
 from core.journal_writer import JournalWriter
 
 # Import strategy components
-from strategies.entry.price_above_sma import PriceAboveSMA
-from strategies.exit.hold_bars import HoldBars
-from strategies.exit.fixed_tp_sl import FixedTPSL
+from strategies.entry.ema_cross_sma import EMACrossSMA
+from strategies.entry.ema_cross_sma_cvd import EMACrossSMACVD
+from strategies.exit.atr_based_exit import ATRBasedExit
 from strategies.risk.fixed_percent import FixedPercent
 
 # Configure logging
@@ -35,22 +35,15 @@ def load_config(config_path: str = "config.yaml") -> dict:
 
 def resample_to_timeframe(df, target_tf: str):
     """
-    Resample 1m data to target timeframe using forward-fill.
-
-    Args:
-        df: DataFrame with 1m OHLCV data (DatetimeIndex)
-        target_tf: Target timeframe (e.g., "4h", "1h", "15m")
-
-    Returns:
-        Resampled DataFrame
+    Resample 1m data to target timeframe with ALL required columns.
     """
     logger.info(f"Resampling from 1m to {target_tf}...")
 
     tf_map = {
-        "1m": "1T",
-        "5m": "5T",
-        "15m": "15T",
-        "30m": "30T",
+        "1m": "1min",
+        "5m": "5min",
+        "15m": "15min",
+        "30m": "30min",
         "1h": "1h",
         "2h": "2h",
         "3h": "3h",
@@ -65,13 +58,34 @@ def resample_to_timeframe(df, target_tf: str):
     if not pandas_tf:
         raise ValueError(f"Unsupported timeframe: {target_tf}")
 
-    # Use label='left', closed='left' to align with candlestick boundaries
+    agg_dict = {
+        # OHLC
+        "open": "first",
+        "high": "max",
+        "low": "min",
+        "close": "last",
+        # Volume columns (SUM aggregation)
+        "volume": "sum",
+        "quote_volume": "sum",
+        "taker_buy_volume": "sum",
+        "taker_buy_quote_volume": "sum",
+        # Others
+        "count": "sum",
+        "ignore": "sum",
+    }
+
+    existing_cols = [col for col in agg_dict.keys() if col in df.columns]
+    filtered_agg_dict = {col: agg_dict[col] for col in existing_cols}
+
+    # Resample with label='left', closed='left'
     resampled = df.resample(pandas_tf, label="left", closed="left").agg(
-        {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+        filtered_agg_dict
     )
 
-    # Forward-fill NaN values
-    resampled = resampled.ffill()
+    # Forward-fill NaN values per OHLC
+    resampled[["open", "high", "low", "close"]] = resampled[
+        ["open", "high", "low", "close"]
+    ].ffill()
 
     # Drop any remaining NaN rows
     original_len = len(resampled)
@@ -83,6 +97,7 @@ def resample_to_timeframe(df, target_tf: str):
         )
 
     logger.info(f"Resampled: {len(df)} rows (1m) → {len(resampled)} rows ({target_tf})")
+    logger.debug(f"Columns after resampling: {list(resampled.columns)}")
 
     return resampled
 
@@ -106,6 +121,10 @@ def create_strategy_components(config: dict):
 
     if entry_name == "price_above_sma":
         entry_strategy = PriceAboveSMA(entry_params)
+    elif entry_name == "ema_cross_sma":
+        entry_strategy = EMACrossSMA(entry_params)
+    elif entry_name == "ema_cross_sma_cvd":
+        entry_strategy = EMACrossSMACVD(entry_params)
     else:
         raise ValueError(f"Unknown entry strategy: {entry_name}")
 
@@ -118,6 +137,8 @@ def create_strategy_components(config: dict):
         exit_strategy = HoldBars(exit_params)
     elif exit_name == "fixed_tp_sl":
         exit_strategy = FixedTPSL(exit_params)
+    elif exit_name == "atr_based_exit":
+        exit_strategy = ATRBasedExit(exit_params)
     else:
         raise ValueError(f"Unknown exit strategy: {exit_name}")
 
@@ -239,22 +260,6 @@ def main():
     # 11. Print summary
     logger.info("\n📊 Backtest Results:")
     engine.print_summary(results)
-
-    # DEBUG PLOTTER
-    logger.info("\n🔍 FINAL VERIFICATION - Backtest Data vs Trade:")
-    if "sma_200" in results["data"].columns:
-        # Trova il trade
-        for trade in results["trades"]:
-            if trade.get("entry_time"):
-                entry_time = pd.to_datetime(trade["entry_time"])
-                if entry_time in results["data"].index:
-                    price = results["data"].loc[entry_time, "close"]
-                    sma = results["data"].loc[entry_time, "sma_200"]
-                    logger.info(f"   Trade at {entry_time}:")
-                    logger.info(f"     Price: {price:.6f}")
-                    logger.info(f"     SMA 200: {sma:.6f}")
-                    logger.info(f"     Price > SMA?: {price > sma}")
-                    logger.info(f"     Diff: {price - sma:.6f}")
 
     # 12. Save results
     logger.info("\n💾 Saving results...")

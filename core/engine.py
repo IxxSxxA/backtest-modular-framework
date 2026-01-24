@@ -162,7 +162,7 @@ class BacktestEngine:
             self._update_equity(i, current_price)
 
             # Progress logging
-            if i % 10000 == 0:
+            if i % 1440 == 0:
                 logger.info(f"Processed {i:,}/{total_candles:,} candles")
 
         # Close any open position at the end
@@ -480,6 +480,11 @@ class BacktestEngine:
         print(f"  Final Total Equity:     ${results['final_total_equity']:,.2f}")
         print(f"  Total Return:           {results['total_return_percent']:+.2f}%")
         print(f"  Max Drawdown:           {results['max_drawdown_percent']:.2f}%")
+
+        print(f"\n🔄 Backtest period")
+        print(f"  Start Date:             {self.data.index[0]}")
+        print(f"  End Date:               {self.data.index[-1]}")
+        print(f"  Duration:               {self.data.index[-1] - self.data.index[0]}")
 
         print(f"\n📊 Trade Statistics:")
         print(f"  Total Trades:    {results['total_trades']}")

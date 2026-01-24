@@ -58,18 +58,18 @@ class BaseCalculator(ABC):
 
         indicator_name = self.__class__.__name__.replace("Calculator", "").lower()
 
-        # Include tf in cache key if specified
-        if "tf" in params:
-            tf = params["tf"]
-            period = params.get("period", "")
-            if period:
-                return f"{indicator_name}_period{period}_{tf}_1m_{param_hash}"
-            return f"{indicator_name}_{tf}_1m_{param_hash}"
-        else:
-            period = params.get("period", "")
-            if period:
-                return f"{indicator_name}_period{period}_1m_{param_hash}"
-            return f"{indicator_name}_1m_{param_hash}"
+        # Nome base: indicator + timeframe
+        base_key = f"{indicator_name}_{self.timeframe}"
+
+        # Aggiungi parametri significativi
+        if "window_minutes" in params:
+            base_key = (
+                f"{indicator_name}_window{params['window_minutes']}_{self.timeframe}"
+            )
+        elif "period" in params:
+            base_key = f"{indicator_name}_period{params['period']}_{self.timeframe}"
+
+        return f"{base_key}_{param_hash}"
 
     def _resample_to_timeframe(self, data: pd.DataFrame, minutes: int) -> pd.DataFrame:
         """
