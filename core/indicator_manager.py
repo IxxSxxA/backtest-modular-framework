@@ -16,15 +16,19 @@ class IndicatorManager:
     Discovers and loads all indicator calculators automatically.
     """
 
-    def __init__(self, indicators_dir: str = "indicators"):
+    def __init__(
+        self, indicators_dir: str = "indicators", config: Dict[str, Any] = None
+    ):
         """
         Initialize indicator manager.
 
         Args:
             indicators_dir: Directory containing indicator calculators
+            config: Configuration dictionary (needed for CVD file path)
         """
         self.indicators_dir = Path(indicators_dir)
         self.calculators = {}
+        self.config = config  # Store config
 
         # Discover and load all calculators
         self._discover_calculators()
@@ -100,7 +104,7 @@ class IndicatorManager:
         data: pd.DataFrame,
         indicator_config: Dict[str, Any],
         symbol: str,
-        strategy_tf: str,  # Just this one
+        strategy_tf: str,
     ) -> pd.Series:
         """
         Calculate indicator based on configuration.
@@ -109,25 +113,42 @@ class IndicatorManager:
             data: DataFrame with OHLCV data (already resampled to strategy_tf)
             indicator_config: Config dict with name, params, column
             symbol: Trading symbol
-
-            strategy_tf: Strategy timeframe (e.g., "4h") -> NOT USED -> Maybe for MultiTF in future?
+            strategy_tf: Strategy timeframe (e.g., "5m")
 
         Returns:
             Series with indicator values
         """
         indicator_name = indicator_config["name"]
-        params = indicator_config.get("params", {})
+        params = indicator_config.get("params", {}).copy()  # Copy to avoid mutation
         column_name = indicator_config.get("column")
 
-        # params["tf"] = strategy_tf
-
-        # Get calculator
+        # Get calculator class
         CalculatorClass = self.calculators.get(indicator_name)
         if CalculatorClass is None:
             raise ValueError(f"Indicator '{indicator_name}' not implemented.")
 
-        # ✅ Pass strategy_tf to calculator
+        # Create calculator instance
         calculator = CalculatorClass(symbol=symbol, timeframe=strategy_tf)
+
+        # Special handling for CVD: pass data file path
+        if indicator_name == "cvdratio":
+            if self.config is None:
+                raise ValueError(
+                    "Config required for CVD calculator but not provided to IndicatorManager!"
+                )
+
+            data_config = self.config["data"]
+            source_dir = data_config["source_dir"]
+            source_file = data_config["source_file"]
+            file_path = Path(source_dir) / source_file
+
+            if not file_path.suffix:
+                file_path = file_path.with_suffix(".parquet")
+
+            # Add to params
+            params["data_file_path"] = str(file_path)
+
+            logger.debug(f"CVD data file path: {file_path}")
 
         # Calculate with caching
         values = calculator.calculate_with_cache(data, params, column_name)
@@ -139,7 +160,7 @@ class IndicatorManager:
         data: pd.DataFrame,
         indicator_configs: List[Dict[str, Any]],
         symbol: str,
-        strategy_tf: str,  # ✅ RENAMED and CLARIFIED
+        strategy_tf: str,
     ) -> pd.DataFrame:
         """
         Calculate multiple indicators and add them to the DataFrame.
@@ -167,7 +188,7 @@ class IndicatorManager:
                     f"Calculating {indicator_name} on {strategy_tf} → '{column_name}'"
                 )
 
-                # ✅ Calculate (uses caching)
+                # Calculate (uses caching)
                 values = self.calculate_indicator(
                     data=data,
                     indicator_config=config,

@@ -7,11 +7,6 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# SMA Calculator
-# ============================================================================
-
-
 class SMACalculator(BaseCalculator):
     """
     Simple Moving Average calculator.
@@ -69,6 +64,6 @@ class SMACalculator(BaseCalculator):
 
         return sma
 
-        def get_required_columns(self) -> list:
-            """Return list of required columns from input data."""
-            return ["high", "low", "close"]
+    def get_required_columns(self) -> list:
+        """Return list of required columns from input data."""
+        return ["close"]

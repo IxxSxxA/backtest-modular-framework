@@ -11,6 +11,5 @@ __all__ = [
     "SMACalculator",
     "EMACalculator",
     "ATRCalculator",
-    "CVDCalculator",
     "CVDRatioCalculator",
 ]

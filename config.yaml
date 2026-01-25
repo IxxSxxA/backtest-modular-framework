@@ -7,7 +7,7 @@ backtest:
   # Test period (optional - uses all data if omitted)
   # Start will be automatically normalized to midnight (00:00)
   period:
-    start: "2026-01-20"
+    start: "2026-01-16"
     end: "2026-01-22"
   
   # Initial capital
@@ -53,16 +53,15 @@ strategy:
   entry:
     name: "ema_cross_sma_cvd"
     params:
-      ema_period: 59
+      ema_period: 54
       sma_period: 200
 
       #cvd_window_minutes: 15      
       # Separate thresholds for LONG/SHORT
-      long_threshold: 7.0   # Enter LONG when CVD > +20%
-      short_threshold: -7.0 # Enter SHORT when CVD < -20%      
-      # CVD Ratio Range: -100 (all selling) to +100 (all buying)
-      # +20% = 20% net buying pressure
-      # -20% = 20% net selling pressure
+      long_threshold: 50.0   # LONG if CVD > threshold
+      short_threshold: 50.0  # SHORT if CVS < threshold
+      # CVD Ratio Range: 0 (all selling) to +100 (all buying)
+            
   
   exit:
     name: "atr_based_exit"
@@ -74,15 +73,15 @@ strategy:
   risk:
     name: "fixed_percent"
     params:
-      risk_per_trade: 0.02    # 2% risk per trade
+      risk_per_trade: 0.03    # 2% risk per trade
       max_drawdown: 0.15      # Stop trading if 15% drawdown
 
 # === INDICATORS ===
 indicators:
   # Moving Averages
   - name: "ema"
-    params: {period: 59}
-    column: "ema_59"
+    params: {period: 54}
+    column: "ema_54"
   
   - name: "sma"
     params: {period: 200}
@@ -98,48 +97,72 @@ indicators:
   # CVD Ratio - Volume Delta Indicator
   - name: "cvdratio"
     params:
-      window_minutes: 15
-      use_quote: false  # Use base volume (not quote volume)
-    column: "cvd_ratio_15m"
+      cumulative_period_minutes: 1   # Rolling window for CVD accumulation -> 1m Minumum
+      signal_period_minutes: 15        # Rolling window for min/max (same as cumulative)
+      use_quote: false                   # Use base volume (not quote volume)
+    column: "cvd_ratio"
 
 # === PLOTTING ===
 plotting:
   # Indicators to plot (overlaid on price chart)
   indicators_to_plot:
-    - column: "ema_59"
-      label: "EMA 59 (5m)"
+    - column: "ema_54"
+      label: "EMA"
       color: "#0052CC"
       linewidth: 2
       alpha: 0.8
     
     - column: "sma_200"
-      label: "SMA 200 (5m)"
+      label: "SMA 200"
       color: "#FF6B00"
       linewidth: 2
       alpha: 0.8
+
+
+  sl_tp:
+    enabled: true
+    dynamic: true  # Enable dynamic trailing SL/TP
+    style:
+      tp_color: "#27AE60"      # Green
+      sl_color: "#E74C3C"      # Red
+      zone_color: "#F1C40F"    # Yellow for fill
+      zone_alpha: 0.1
+      line_width: 1.5
+      line_style: "--"
+    
+    annotations:
+      show_entry_exit: true
+      show_pnl: true
+      font_size: 8
+      box_style: "round,pad=0.3"
   
   # SEPARATE PANELS (oscillators, volume, etc.)
-  separate_panels:
-    - column: "cvd_ratio_15m"
-      label: "CVD Ratio 15m"
+  separate_panels:  # RIMUOVI il doppio "separate_panels:"!
+    - column: "cvd_ratio"
+      label: "CVD Signal %"
       color: "#8E44AD"
       linewidth: 1.5
       alpha: 0.7
       type: "oscillator"
-      ylim: [-100, 100]
-      zero_line: true
-      # Add threshold lines
+      ylim: [0, 100]
+      zero_line: false
+      # Threshold lines
       hlines:
-        - value: 20
-          color: "#2ECC71"
-          linestyle: "--"
-          alpha: 0.5
-          label: "LONG threshold"
-        - value: -20
-          color: "#E74C3C"
-          linestyle: "--"
-          alpha: 0.5
-          label: "SHORT threshold"
+        # - value: 70
+        #   color: "#2ECC71"
+        #   linestyle: "--"
+        #   alpha: 0.5
+        #   label: "Bullish"
+        - value: 50
+          color: "#7F8C8D"
+          linestyle: "-"
+          alpha: 0.3
+          label: "Neutral"
+        # - value: 30
+        #   color: "#E74C3C"
+        #   linestyle: "--"
+        #   alpha: 0.5
+        #   label: "Bearish"
   
   # Layout configuration
   layout:

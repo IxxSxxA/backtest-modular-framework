@@ -117,7 +117,6 @@ Fixed calculations, consistency checks, detailed logging, calculation reference.
 **BREAKING CHANGE:** Implemented true multi-TF indicator calculation with resampling
 - Added proper resampling from 1m to any strategy timeframe
 - Updated indicator calculators to work with resampled data
-- Forward-fill alignment for consistent 1m resolution backtesting
 - Support for accurate OHLC-based indicators
 
 ### **📋 PHASE 4.B: DOCUMENTATION REORGANIZATION** 

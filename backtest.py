@@ -97,7 +97,7 @@ def main():
     logger.info("=" * 60)
 
     # 1. Load configuration
-    logger.info("\n📄 Loading configuration...")
+    logger.info("📄 Loading configuration...")
     config = load_config("config.yaml")
 
     strategy_tf = config["strategy"]["timeframe"]
@@ -110,7 +110,7 @@ def main():
     resampler = DataResampler()
 
     # 2. Load FULL historical data for indicators (without date filters)
-    logger.info("\n📊 Loading FULL historical 1m data for indicators...")
+    logger.info("📊 Loading FULL historical 1m data for indicators...")
     data_loader_full = DataLoader(config)
     data_loader_full.filter_start = None  # Disable date filters
     data_loader_full.filter_end = None
@@ -122,7 +122,7 @@ def main():
     )
 
     # 3. Resample FULL data to strategy timeframe for indicators
-    logger.info(f"\n🔄 Resampling FULL data to {strategy_tf} for indicators...")
+    logger.info(f"🔄 Resampling FULL data to {strategy_tf} for indicators...")
 
     # FIX #1 & #2: Use DataResampler
     full_data_resampled = resampler.resample_to_timeframe(
@@ -133,8 +133,8 @@ def main():
     )
 
     # 4. Calculate indicators on FULL historical data
-    logger.info("\n📈 Calculating indicators on FULL historical data...")
-    indicator_manager = IndicatorManager()
+    logger.info("📈 Calculating indicators on FULL historical data...")
+    indicator_manager = IndicatorManager(config=config)  # Pass config!
     indicator_configs = config.get("indicators", [])
 
     data_with_indicators_full = indicator_manager.calculate_all_indicators(
@@ -147,7 +147,7 @@ def main():
     logger.info(f"   Indicators calculated on {len(data_with_indicators_full)} bars")
 
     # 5. Load backtest window data (with date filters applied)
-    logger.info("\n📊 Loading backtest window data...")
+    logger.info("📊 Loading backtest window data...")
     data_loader_window = DataLoader(config)
 
     # FIX #6: Normalize backtest start to midnight
@@ -163,7 +163,7 @@ def main():
 
     # 6. Resample window data to strategy timeframe
     if strategy_tf != "1m":
-        logger.info(f"\n🔄 Resampling window data to {strategy_tf}...")
+        logger.info(f"🔄 Resampling window data to {strategy_tf}...")
 
         # FIX #1 & #2: Use DataResampler
         window_data_resampled = resampler.resample_to_timeframe(
@@ -173,7 +173,7 @@ def main():
         window_data_resampled = window_data_1m
 
     # 7. Slice indicators for backtest window
-    logger.info("\n✂️ Slicing indicators for backtest window...")
+    logger.info("✂️ Slicing indicators for backtest window...")
 
     # FIX #2: Use reindex with ffill for safer matching
     backtest_data = data_with_indicators_full.reindex(
@@ -197,11 +197,11 @@ def main():
     )
 
     # 8. Create strategy components
-    logger.info("\n⚙️ Creating strategy components...")
+    logger.info("⚙️ Creating strategy components...")
     entry_strategy, exit_strategy, risk_manager = create_strategy_components(config)
 
     # 9. Create backtest engine
-    logger.info("\n🚀 Creating backtest engine...")
+    logger.info("🚀 Creating backtest engine...")
     engine = BacktestEngine.from_config(
         config=config,
         data=backtest_data,
@@ -211,7 +211,7 @@ def main():
     )
 
     # 10. Run backtest
-    logger.info("\n▶️ Running backtest...")
+    logger.info("▶️ Running backtest...")
     logger.info("=" * 60)
 
     results = engine.run()
@@ -219,18 +219,17 @@ def main():
     logger.info("=" * 60)
 
     # 11. Save results
-    logger.info("\n💾 Saving results...")
+    logger.info("💾 Saving results...")
     journal_writer = JournalWriter(config)
 
     file_paths = journal_writer.save_backtest_results(results=results, config=config)
 
-    logger.info("\n✅ Results saved:")
+    logger.info("✅ Results saved:")
     for file_type, path in file_paths.items():
         if path:
-            logger.info(f"   {file_type}: {path}")
+            logger.info(f"-> {file_type}: {path}")
 
     # 12. Print summary
-    logger.info("=" * 60)
     logger.info("📊 Backtest Results:")
     engine.print_summary(results)
 

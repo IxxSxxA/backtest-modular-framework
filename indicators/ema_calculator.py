@@ -70,6 +70,6 @@ class EMACalculator(BaseCalculator):
 
         return ema
 
-        def get_required_columns(self) -> list:
-            """Return list of required columns from input data."""
-            return ["high", "low", "close"]
+    def get_required_columns(self) -> list:
+        """Return list of required columns from input data."""
+        return ["close"]
