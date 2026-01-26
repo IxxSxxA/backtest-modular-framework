@@ -2,6 +2,17 @@
 # TRADING FRAMEWORK - BACKTEST CONFIGURATION
 # =============================================================================
 
+# === DATA SOURCE ===
+data:
+  symbols: ["XPLUSDT"]
+  timeframe: "1m"  # Raw data is always 1m
+  source_dir: "data/raw"
+  source_file: "XPLUSDT-1m-2025-2026-01-22" # File must be parquet format 1m TF 
+# === DATA SOURCE END ===
+
+# =============================================================================
+# =============================================================================
+
 # === BACKTEST SETTINGS ===
 backtest:
   # Test period (optional - uses all data if omitted)
@@ -25,21 +36,14 @@ backtest:
     lookback_window: 100   # Bars to keep in memory for indicators
 
 
-# === DATA SOURCE ===
-data:
-  symbols: ["XPLUSDT"]
-  timeframe: "1m"  # Raw data is always 1m
-  source_dir: "data/raw"
-  source_file: "XPLUSDT-1m-2025-2026-01-22"
-
 # === STRATEGY CONFIGURATION ===
-# This is the heartbeat of the framework -> It's like Chart TF  in TradingView
+# This is the heartbeat of the framework - like Chart TF in TradingView
 # Strategies run on this timeframe
 strategy:
   timeframe: "5m"
   
   # ========================================
-  # NEW: Trading direction configuration
+  # Trading LONG/SHORT configuration
   # ========================================
   trading:
     allow_long: true   # Enable LONG positions
@@ -50,64 +54,69 @@ strategy:
     allow_reversal: true  # Enable position reversal
     # If false, wait for SL/TP before allowing opposite direction
   
+  # ========================================
+  # ENTRY STRATEGY
+  # ========================================
   entry:
     name: "ema_cross_sma_cvd"
+    
+    # Strategy-specific parameters
     params:
-      ema_period: 54
-      sma_period: 200
-
-      #cvd_window_minutes: 15      
-      # Separate thresholds for LONG/SHORT
       long_threshold: 50.0   # LONG if CVD > threshold
-      short_threshold: 50.0  # SHORT if CVS < threshold
-      # CVD Ratio Range: 0 (all selling) to +100 (all buying)
-            
+      short_threshold: 50.0  # SHORT if CVD < threshold
+    
+    # Indicators needed by this strategy
+    # Framework auto-generates column names: ema_54, sma_200, cvd_ratio_1_15
+    indicators:
+      - name: "ema"
+        period: 54
+      
+      - name: "sma"
+        period: 200
+      
+      - name: "cvdratio"
+        cumulative_period_minutes: 1   # Rolling window for CVD accumulation (1m minimum)
+        signal_period_minutes: 15       # Rolling window for min/max
+        use_quote: false                # Use base volume (not quote volume)
   
+  # ========================================
+  # EXIT STRATEGY
+  # ========================================
   exit:
     name: "atr_based_exit"
+    
+    # Strategy-specific parameters
     params:
-      atr_period: 21
       tp_multiplier: 9.5
       sl_multiplier: 5
+    
+    # Indicators needed by this strategy
+    indicators:
+      - name: "atr"
+        period: 21
+        method: "wilder"  # Original Wilder's method (more accurate)
   
+  # ========================================
+  # RISK MANAGEMENT
+  # ========================================
   risk:
     name: "fixed_percent"
+    
     params:
-      risk_per_trade: 0.03    # 2% risk per trade
+      risk_per_trade: 0.03    # 3% risk per trade
       max_drawdown: 0.15      # Stop trading if 15% drawdown
+    
+    # No indicators needed for this risk manager
 
-# === INDICATORS ===
-indicators:
-  # Moving Averages
-  - name: "ema"
-    params: {period: 54}
-    column: "ema_54"
-  
-  - name: "sma"
-    params: {period: 200}
-    column: "sma_200"
-  
-  # ATR for exit strategy
-  - name: "atr"
-    params: 
-      period: 21
-      method: "wilder"  # Metodo originale (più accurato)
-    column: "atr_21"
-  
-  # CVD Ratio - Volume Delta Indicator
-  - name: "cvdratio"
-    params:
-      cumulative_period_minutes: 1   # Rolling window for CVD accumulation -> 1m Minumum
-      signal_period_minutes: 15        # Rolling window for min/max (same as cumulative)
-      use_quote: false                   # Use base volume (not quote volume)
-    column: "cvd_ratio"
 
-# === PLOTTING ===
+# === PLOTTING CONFIGURATION ===
 plotting:
-  # Indicators to plot (overlaid on price chart)
+  # ========================================
+  # INDICATORS ON PRICE CHART
+  # ========================================
   indicators_to_plot:
-    - column: "ema_54"
-      label: "EMA"
+    - column: "ema_54"      # Auto-generated column name
+      label: "EMA 54"
       color: "#0052CC"
       linewidth: 2
       alpha: 0.8
@@ -117,8 +126,18 @@ plotting:
       color: "#FF6B00"
       linewidth: 2
       alpha: 0.8
+    
+    # EXAMPLE: Plot an indicator NOT used by strategy (for visual analysis only)
+    # Uncomment to add Supertrend to the chart:
+    # - column: "supertrend_10_3"  # Will be auto-generated if you add to extra_indicators
+    #   label: "Supertrend"
+    #   color: "#9B59B6"
+    #   linewidth: 1.5
+    #   alpha: 0.7
 
-
+  # ========================================
+  # STOP LOSS / TAKE PROFIT VISUALIZATION
+  # ========================================
   sl_tp:
     enabled: true
     dynamic: true  # Enable dynamic trailing SL/TP
@@ -136,9 +155,11 @@ plotting:
       font_size: 8
       box_style: "round,pad=0.3"
   
+  # ========================================
   # SEPARATE PANELS (oscillators, volume, etc.)
-  separate_panels:  # RIMUOVI il doppio "separate_panels:"!
-    - column: "cvd_ratio"
+  # ========================================
+  separate_panels:
+    - column: "cvd_ratio_1_15"  # Auto-generated: cvdratio with params 1, 15
       label: "CVD Signal %"
       color: "#8E44AD"
       linewidth: 1.5
@@ -148,21 +169,11 @@ plotting:
       zero_line: false
       # Threshold lines
       hlines:
-        # - value: 70
-        #   color: "#2ECC71"
-        #   linestyle: "--"
-        #   alpha: 0.5
-        #   label: "Bullish"
         - value: 50
           color: "#7F8C8D"
           linestyle: "-"
           alpha: 0.3
           label: "Neutral"
-        # - value: 30
-        #   color: "#E74C3C"
-        #   linestyle: "--"
-        #   alpha: 0.5
-        #   label: "Bearish"
   
   # Layout configuration
   layout:
@@ -174,6 +185,22 @@ plotting:
   style:
     background_color: "#f5f5f5"
     grid_alpha: 0.2
+
+
+# === EXTRA INDICATORS (Optional) ===
+# Indicators calculated for analysis/plotting but NOT used by the strategy
+# Uncomment to enable:
+# 
+# extra_indicators:
+#   - name: "supertrend"
+#     period: 10
+#     multiplier: 3
+#     # Auto-generates column: supertrend_10_3
+#   
+#   - name: "rsi"
+#     period: 14
+#     # Auto-generates column: rsi_14
+
 
 # === OUTPUT SETTINGS ===
 output:

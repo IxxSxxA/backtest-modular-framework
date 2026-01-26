@@ -20,32 +20,62 @@ class EMACrossSMACVD(BaseEntryStrategy):
         - EMA < SMA (bearish trend)
         - CVD Ratio < short_threshold (selling pressure)
 
-    Parameters:
-        ema_period: Fast EMA period
-        sma_period: Slow SMA period
-        cvd_window_minutes: CVD calculation window in minutes
-        long_threshold: CVD ratio threshold for LONG entries (default: 20.0)
-        short_threshold: CVD ratio threshold for SHORT entries (default: -20.0)
+    Config example:
+    ```yaml
+    entry:
+      name: "ema_cross_sma_cvd"
+      params:
+        long_threshold: 50.0   # CVD ratio threshold for LONG entries
+        short_threshold: 50.0  # CVD ratio threshold for SHORT entries
+      indicators:
+        - name: "ema"
+          period: 54
+        - name: "sma"
+          period: 200
+        - name: "cvdratio"
+          cumulative_period_minutes: 1
+          signal_period_minutes: 15
+          use_quote: false
+    ```
 
-    CVD Ratio Range: -100 (all selling) to +100 (all buying)
+    CVD Ratio Range: 0 (all selling) to 100 (all buying)
     """
 
     def __init__(self, params: Dict[str, Any]):
         super().__init__(params)
 
-        self.ema_period = params.get("ema_period", 59)
-        self.sma_period = params.get("sma_period", 200)
-        self.cvd_window_minutes = params.get("cvd_window_minutes", 15)
+        # Extract strategy-specific params
+        self.long_threshold = params.get("long_threshold", 50.0)
+        self.short_threshold = params.get("short_threshold", 50.0)
 
-        # Separate thresholds for LONG/SHORT
-        default_threshold = params.get("cvd_ratio_threshold", 20.0)
-        self.long_threshold = params.get("long_threshold", default_threshold)
-        self.short_threshold = params.get("short_threshold", -default_threshold)
+        # Build column names from indicator configs
+        self.ema_column = None
+        self.sma_column = None
+        self.cvd_column = None
+
+        for ind in self.indicators:
+            if ind["name"] == "ema":
+                period = ind.get("period")
+                self.ema_column = f"ema_{period}"
+            elif ind["name"] == "sma":
+                period = ind.get("period")
+                self.sma_column = f"sma_{period}"
+            elif ind["name"] == "cvdratio":
+                # Auto-generated: cvd_ratio_cumulative_signal
+                cumulative = ind.get("cumulative_period_minutes", 1)
+                signal = ind.get("signal_period_minutes", 15)
+                self.cvd_column = f"cvd_ratio_{cumulative}_{signal}"
+
+        if not all([self.ema_column, self.sma_column, self.cvd_column]):
+            raise ValueError(
+                f"{self.name} requires 'ema', 'sma', and 'cvdratio' indicators! "
+                f"Got: {self.indicators}"
+            )
 
         logger.info(f"Initialized {self.name}")
-        logger.info(f"  EMA: {self.ema_period}")
-        logger.info(f"  SMA: {self.sma_period}")
-        logger.info(f"  CVD Window: {self.cvd_window_minutes} minutes")
+        logger.info(
+            f"  Columns: {self.ema_column}, {self.sma_column}, {self.cvd_column}"
+        )
         logger.info(f"  LONG threshold: CVD > {self.long_threshold}")
         logger.info(f"  SHORT threshold: CVD < {self.short_threshold}")
 
@@ -61,41 +91,44 @@ class EMACrossSMACVD(BaseEntryStrategy):
             False if no signal
         """
         try:
-            # Get required indicators
-            ema_col = f"ema_{self.ema_period}"
-            sma_col = f"sma_{self.sma_period}"
-            cvd_col = f"cvd_ratio_{self.cvd_window_minutes}min_{data.data.columns[0].split('_')[-1]}"
-
-            # Try to find CVD column (handle different naming)
-            available_cols = data.get_available_columns()
-            cvd_matches = [col for col in available_cols if "cvd_ratio" in col.lower()]
-
-            if not cvd_matches:
-                logger.error(f"CVD ratio column not found! Available: {available_cols}")
-                return False
-
-            cvd_col = cvd_matches[0]  # Use first match
-
             # Get current values
-            ema_current = data[ema_col][0]
-            sma_current = data[sma_col][0]
+            ema_current = data[self.ema_column][0]
+            sma_current = data[self.sma_column][0]
+            ema_prev = data[self.ema_column][-1]
+            sma_prev = data[self.sma_column][-1]
 
-            ema_prev = data[ema_col][-1]
-            sma_prev = data[sma_col][-1]
+            # Try to get CVD column (handle any naming variations)
+            cvd_ratio = None
+            available_cols = data.get_available_columns()
 
-            cvd_ratio = data[cvd_col][0]
+            # Try exact match first
+            if self.cvd_column in available_cols:
+                cvd_ratio = data[self.cvd_column][0]
+            else:
+                # Fallback: find any column containing "cvd_ratio"
+                cvd_matches = [
+                    col for col in available_cols if "cvd_ratio" in col.lower()
+                ]
+                if cvd_matches:
+                    self.cvd_column = cvd_matches[0]  # Update column name
+                    cvd_ratio = data[self.cvd_column][0]
+                    logger.debug(f"Using CVD column: {self.cvd_column}")
+                else:
+                    logger.error(f"CVD column not found! Available: {available_cols}")
+                    return False
 
+            # Detect crosses
             isCrossBullish = ema_prev < sma_prev and ema_current >= sma_current
             isCrossBearish = ema_prev > sma_prev and ema_current <= sma_current
 
             # Logging
             if isCrossBullish:
                 logger.info(
-                    f"EMA({self.ema_period})={ema_current:.4f} > SMA({self.sma_period})={sma_current:.4f} -> Detected Bullish Cross | CVD={cvd_ratio:.1f}%"
+                    f"EMA={ema_current:.4f} > SMA={sma_current:.4f} -> Bullish Cross | CVD={cvd_ratio:.1f}%"
                 )
             if isCrossBearish:
                 logger.info(
-                    f"EMA({self.ema_period})={ema_current:.4f} < SMA({self.sma_period})={sma_current:.4f} -> Detected Bearish Cross | CVD={cvd_ratio:.1f}%"
+                    f"EMA={ema_current:.4f} < SMA={sma_current:.4f} -> Bearish Cross | CVD={cvd_ratio:.1f}%"
                 )
 
             # Check for LONG signal
@@ -104,7 +137,7 @@ class EMACrossSMACVD(BaseEntryStrategy):
                     "signal": True,
                     "direction": "LONG",
                     "reason": (
-                        f"EMA({self.ema_period})={ema_current:.2f} > SMA({self.sma_period})={sma_current:.2f} "
+                        f"EMA={ema_current:.2f} > SMA={sma_current:.2f} "
                         f"+ CVD={cvd_ratio:.1f}% > {self.long_threshold}"
                     ),
                 }
@@ -115,7 +148,7 @@ class EMACrossSMACVD(BaseEntryStrategy):
                     "signal": True,
                     "direction": "SHORT",
                     "reason": (
-                        f"EMA({self.ema_period})={ema_current:.2f} < SMA({self.sma_period})={sma_current:.2f} "
+                        f"EMA={ema_current:.2f} < SMA={sma_current:.2f} "
                         f"+ CVD={cvd_ratio:.1f}% < {self.short_threshold}"
                     ),
                 }
@@ -133,9 +166,6 @@ class EMACrossSMACVD(BaseEntryStrategy):
     def __str__(self):
         return (
             f"EMACrossSMACVD("
-            f"ema={self.ema_period}, "
-            f"sma={self.sma_period}, "
-            f"cvd_window={self.cvd_window_minutes}min, "
-            f"long>{self.long_threshold}, "
-            f"short<{self.short_threshold})"
+            f"{self.ema_column}, {self.sma_column}, {self.cvd_column}, "
+            f"long>{self.long_threshold}, short<{self.short_threshold})"
         )

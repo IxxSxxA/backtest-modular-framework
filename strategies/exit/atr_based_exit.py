@@ -11,26 +11,54 @@ class ATRBasedExit(BaseExitStrategy):
     """
     Exit strategy based on ATR multiples for take profit and stop loss.
 
-    Parameters:
-        atr_period: Period for ATR calculation (default: 14)
-        tp_multiplier: Take profit multiplier (default: 9.0)
-        sl_multiplier: Stop loss multiplier (default: 5.5)
+    Config example:
+    ```yaml
+    exit:
+      name: "atr_based_exit"
+      params:
+        tp_multiplier: 9.0
+        sl_multiplier: 5.5
+      indicators:
+        - name: "atr"
+          period: 21
+          method: "wilder"
+    ```
+
+    Column name auto-generated: atr_21_wilder (or atr_21 if method is default)
     """
 
     def __init__(self, params: dict = None):
         super().__init__(params)
 
-        # Extract parameters
-        self.atr_period = self.params.get("atr_period", 14)
+        # Extract strategy-specific parameters
         self.tp_multiplier = float(self.params.get("tp_multiplier", 9.0))
         self.sl_multiplier = float(self.params.get("sl_multiplier", 5.5))
 
-        # Column name
-        self.atr_column = f"atr_{self.atr_period}"
+        # Build column name from indicator config
+        self.atr_column = None
+
+        for ind in self.indicators:
+            if ind["name"] == "atr":
+                period = ind.get("period", 14)
+                method = ind.get("method", "wilder")
+
+                # Auto-generated column name logic
+                if method == "wilder":
+                    # Default method, don't include in name
+                    self.atr_column = f"atr_{period}"
+                else:
+                    self.atr_column = f"atr_{period}_{method}"
+                break
+
+        if not self.atr_column:
+            raise ValueError(
+                f"{self.name} requires 'atr' indicator in config! "
+                f"Got: {self.indicators}"
+            )
 
         logger.info(
             f"Initialized ATRBasedExit: "
-            f"ATR({self.atr_period}), TP={self.tp_multiplier}x, SL={self.sl_multiplier}x"
+            f"Column={self.atr_column}, TP={self.tp_multiplier}x, SL={self.sl_multiplier}x"
         )
 
     def should_exit(
@@ -42,6 +70,10 @@ class ATRBasedExit(BaseExitStrategy):
         For LONG positions:
         - Take Profit: entry_price + (ATR * tp_multiplier)
         - Stop Loss: entry_price - (ATR * sl_multiplier)
+
+        For SHORT positions:
+        - Take Profit: entry_price - (ATR * tp_multiplier)
+        - Stop Loss: entry_price + (ATR * sl_multiplier)
         """
         try:
             # Get current ATR value
@@ -75,18 +107,21 @@ class ATRBasedExit(BaseExitStrategy):
                     )
                     return True, "STOP_LOSS"
 
-            # Future: add short position support
             elif position_type == "short":
                 # Inverse logic for short positions
                 take_profit = entry_price - (current_atr * self.tp_multiplier)
                 stop_loss = entry_price + (current_atr * self.sl_multiplier)
 
                 if current_price <= take_profit:
-                    logger.info(f"Take Profit hit (short): {current_price:.4f}")
+                    logger.info(
+                        f"Take Profit hit (SHORT): {current_price:.4f} <= {take_profit:.4f}"
+                    )
                     return True, "TAKE_PROFIT"
 
                 elif current_price >= stop_loss:
-                    logger.info(f"Stop Loss hit (short): {current_price:.4f}")
+                    logger.info(
+                        f"Stop Loss hit (SHORT): {current_price:.4f} >= {stop_loss:.4f}"
+                    )
                     return True, "STOP_LOSS"
 
             return False, None
@@ -94,7 +129,3 @@ class ATRBasedExit(BaseExitStrategy):
         except (IndexError, KeyError) as e:
             logger.warning(f"Data access error in should_exit: {e}")
             return False, None
-
-    def get_required_indicators(self) -> list:
-        """Return required indicator names."""
-        return [self.atr_column]

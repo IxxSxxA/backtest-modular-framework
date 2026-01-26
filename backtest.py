@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from core.data_loader import DataLoader
-from core.resampler import DataResampler  # NEW IMPORT
+from core.resampler import DataResampler
 from core.indicator_manager import IndicatorManager
 from core.engine import BacktestEngine
 from core.journal_writer import JournalWriter
@@ -34,12 +34,11 @@ def load_config(config_path: str = "config.yaml") -> dict:
     return config
 
 
-# REMOVED: resample_to_timeframe() - Now in core/resampler.py
-
-
 def create_strategy_components(config: dict):
     """
     Factory function to create entry, exit, and risk strategies.
+
+    NEW: Strategies now receive their indicator configs via params.
 
     Args:
         config: Full configuration dictionary
@@ -52,7 +51,12 @@ def create_strategy_components(config: dict):
     # 1. Entry Strategy
     entry_config = strategy_config["entry"]
     entry_name = entry_config["name"]
-    entry_params = entry_config.get("params", {})
+
+    # NEW: Pass entire entry config (includes params + indicators)
+    entry_params = {
+        **entry_config.get("params", {}),
+        "indicators": entry_config.get("indicators", []),
+    }
 
     if entry_name == "ema_cross_sma":
         entry_strategy = EMACrossSMA(entry_params)
@@ -64,7 +68,12 @@ def create_strategy_components(config: dict):
     # 2. Exit Strategy
     exit_config = strategy_config["exit"]
     exit_name = exit_config["name"]
-    exit_params = exit_config.get("params", {})
+
+    # NEW: Pass entire exit config (includes params + indicators)
+    exit_params = {
+        **exit_config.get("params", {}),
+        "indicators": exit_config.get("indicators", []),
+    }
 
     if exit_name == "atr_based_exit":
         exit_strategy = ATRBasedExit(exit_params)
@@ -74,7 +83,12 @@ def create_strategy_components(config: dict):
     # 3. Risk Manager
     risk_config = strategy_config.get("risk", {})
     risk_name = risk_config.get("name", "fixed_percent")
-    risk_params = risk_config.get("params", {})
+
+    # NEW: Pass entire risk config (includes params + indicators if any)
+    risk_params = {
+        **risk_config.get("params", {}),
+        "indicators": risk_config.get("indicators", []),
+    }
 
     if risk_name == "fixed_percent":
         risk_manager = FixedPercent(risk_params)
@@ -106,7 +120,7 @@ def main():
     logger.info(f"   Symbol: {symbol}")
     logger.info(f"   Strategy TF: {strategy_tf}")
 
-    # NEW: Create resampler instance
+    # Create resampler instance
     resampler = DataResampler()
 
     # 2. Load FULL historical data for indicators (without date filters)
@@ -124,36 +138,46 @@ def main():
     # 3. Resample FULL data to strategy timeframe for indicators
     logger.info(f"🔄 Resampling FULL data to {strategy_tf} for indicators...")
 
-    # FIX #1 & #2: Use DataResampler
     full_data_resampled = resampler.resample_to_timeframe(
         full_data_1m,
         strategy_tf,
-        normalize_index=True,  # Fix index matching
-        quality_threshold=0.95,  # Raise error if >5% data loss
+        normalize_index=True,
+        quality_threshold=0.95,
     )
 
-    # 4. Calculate indicators on FULL historical data
-    logger.info("📈 Calculating indicators on FULL historical data...")
-    indicator_manager = IndicatorManager(config=config)  # Pass config!
-    indicator_configs = config.get("indicators", [])
+    # 4. Create strategy components FIRST (before calculating indicators)
+    logger.info("⚙️ Creating strategy components...")
+    entry_strategy, exit_strategy, risk_manager = create_strategy_components(config)
 
-    data_with_indicators_full = indicator_manager.calculate_all_indicators(
+    # 5. Calculate indicators from strategy declarations
+    logger.info("📈 Calculating indicators from strategy declarations...")
+    indicator_manager = IndicatorManager(config=config)
+
+    # NEW: Get extra indicators from config (optional, for plotting)
+    extra_indicators = config.get("extra_indicators", [])
+    if extra_indicators:
+        logger.info(f"   Found {len(extra_indicators)} extra indicators for plotting")
+
+    # NEW: Auto-discover and calculate all needed indicators
+    data_with_indicators_full = indicator_manager.calculate_from_strategies(
         data=full_data_resampled,
-        indicator_configs=indicator_configs,
+        entry=entry_strategy,
+        exit=exit_strategy,
+        risk=risk_manager,
         symbol=symbol,
         strategy_tf=strategy_tf,
+        extra_indicators=extra_indicators,
     )
 
     logger.info(f"   Indicators calculated on {len(data_with_indicators_full)} bars")
 
-    # 5. Load backtest window data (with date filters applied)
+    # 6. Load backtest window data (with date filters applied)
     logger.info("📊 Loading backtest window data...")
     data_loader_window = DataLoader(config)
 
-    # FIX #6: Normalize backtest start to midnight
     window_data_1m = data_loader_window.load_single_symbol(
         symbol,
-        normalize_start=True,  # NEW: Normalize to midnight
+        normalize_start=True,
     )
 
     logger.info(f"   Window 1m data: {len(window_data_1m)} rows")
@@ -161,21 +185,19 @@ def main():
         f"   Window date range: {window_data_1m.index[0]} to {window_data_1m.index[-1]}"
     )
 
-    # 6. Resample window data to strategy timeframe
+    # 7. Resample window data to strategy timeframe
     if strategy_tf != "1m":
         logger.info(f"🔄 Resampling window data to {strategy_tf}...")
 
-        # FIX #1 & #2: Use DataResampler
         window_data_resampled = resampler.resample_to_timeframe(
             window_data_1m, strategy_tf, normalize_index=True
         )
     else:
         window_data_resampled = window_data_1m
 
-    # 7. Slice indicators for backtest window
+    # 8. Slice indicators for backtest window
     logger.info("✂️ Slicing indicators for backtest window...")
 
-    # FIX #2: Use reindex with ffill for safer matching
     backtest_data = data_with_indicators_full.reindex(
         window_data_resampled.index, method="ffill"
     )
@@ -195,10 +217,6 @@ def main():
     logger.info(
         f"   Backtest date range: {backtest_data.index[0]} to {backtest_data.index[-1]}"
     )
-
-    # 8. Create strategy components
-    logger.info("⚙️ Creating strategy components...")
-    entry_strategy, exit_strategy, risk_manager = create_strategy_components(config)
 
     # 9. Create backtest engine
     logger.info("🚀 Creating backtest engine...")

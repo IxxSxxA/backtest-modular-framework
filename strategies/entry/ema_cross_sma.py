@@ -10,28 +10,50 @@ class EMACrossSMA(BaseEntryStrategy):
     """
     Entry strategy: Enter when EMA crosses above SMA.
 
-    Parameters:
-        ema_period: Period for EMA (default: 59)
-        sma_period: Period for SMA (default: 200)
+    Config example:
+    ```yaml
+    entry:
+      name: "ema_cross_sma"
+      params: {}  # No strategy-specific params needed
+      indicators:
+        - name: "ema"
+          period: 59
+        - name: "sma"
+          period: 200
+    ```
+
+    Column names are auto-generated: ema_59, sma_200
     """
 
     def __init__(self, params: dict = None):
         super().__init__(params)
 
-        # Extract parameters
-        self.ema_period = self.params.get("ema_period", 59)
-        self.sma_period = self.params.get("sma_period", 200)
+        # Extract indicator configs (already stored in self.indicators by base class)
+        # Build column names for easy access
+        self.ema_column = None
+        self.sma_column = None
 
-        # Column names (must match config.yaml)
-        self.ema_column = f"ema_{self.ema_period}"
-        self.sma_column = f"sma_{self.sma_period}"
+        for ind in self.indicators:
+            if ind["name"] == "ema":
+                period = ind.get("period")
+                self.ema_column = f"ema_{period}"
+            elif ind["name"] == "sma":
+                period = ind.get("period")
+                self.sma_column = f"sma_{period}"
+
+        if not self.ema_column or not self.sma_column:
+            raise ValueError(
+                f"{self.name} requires 'ema' and 'sma' indicators in config! "
+                f"Got: {self.indicators}"
+            )
 
         logger.info(
             f"Initialized EMACrossSMA: "
-            f"EMA({self.ema_period}), SMA({self.sma_period})"
+            f"Columns: {self.ema_column}, {self.sma_column}"
         )
 
     def should_enter(self, data) -> bool:
+        """Check for EMA crossover above SMA."""
         # Check if we have required indicators
         required = [self.ema_column, self.sma_column]
         for col in required:
@@ -51,7 +73,7 @@ class EMACrossSMA(BaseEntryStrategy):
             # Crossover detection: EMA crosses above SMA
             if (prev_ema <= prev_sma) and (current_ema > current_sma):
                 logger.info(
-                    f"Entry signal: EMA({self.ema_period}) crossed above SMA({self.sma_period}) - "
+                    f"Entry signal: EMA crossed above SMA - "
                     f"{prev_ema:.4f}≤{prev_sma:.4f} → {current_ema:.4f}>{current_sma:.4f}"
                 )
                 return True
@@ -61,7 +83,3 @@ class EMACrossSMA(BaseEntryStrategy):
         except (IndexError, KeyError) as e:
             logger.warning(f"Data access error in should_enter: {e}")
             return False
-
-    def get_required_indicators(self) -> list:
-        """Return required indicator names."""
-        return [self.ema_column, self.sma_column]
