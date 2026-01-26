@@ -432,13 +432,7 @@ A cleaner, more maintainable framework where:
 - [ ] Live trading bridge
 - [ ] Comprehensive documentation
 
-## 🔗 USEFUL LINKS
-
-- **[Quick Start Guide](docs/quickstart.md)** - Get running in 5 minutes
-- **[Component Writing Guide](docs/components.md)** - How to create indicators and strategies
-- **[Execution Pipeline](docs/pipeline.md)** - Detailed flow explanation
-- **[Multi-TF System](docs/multitf-system.md)** - Deep dive into timeframe handling
-- **[Calculations Reference](docs/calculations.md)** - Formulas and verification
+=========================================================================
 
 ## 📊 CURRENT STATUS
 
@@ -446,17 +440,3 @@ A cleaner, more maintainable framework where:
 **Performance:** ~5s for subsequent runs (cached)  
 **Data:** 1-minute Parquet files, auto-resampled  
 **Output:** Journals in Parquet, PNG charts, JSON metrics  
-
-**Mantra:** *"Write strategies, not boilerplate"*
-
----
-
-## 🆕 LATEST IMPROVEMENTS (v4.0)
-
-- **Multi-Timeframe System**: True resampling for accurate indicator calculation
-- **Forward-fill Alignment**: Clean signal visualization across timeframes
-- **Enhanced Caching**: Separate cache files per timeframe/parameter combination
-- **Accurate OHLC Indicators**: Proper ATR, Bollinger Bands on target timeframe
-- **Simplified Configuration**: `strategy.timeframe` controls everything
-
-
