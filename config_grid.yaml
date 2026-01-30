@@ -1,0 +1,63 @@
+# =============================================================================
+# GRID SEARCH CONFIGURATION
+# =============================================================================
+# This config defines parameter ranges for grid search optimization
+# Base config is loaded from config.yaml and parameters are overridden
+
+# === GRID PARAMETERS ===
+grid:
+  configurations:
+    - timeframe: "5m"
+      indicators:
+        ema_period: 54
+        sma_period: 200
+        atr_period: 21
+      tp_multipliers: [7.0, 9.5, 12.0]
+      sl_multipliers: [5.0, 6.0, 7.0]
+
+    - timeframe: "15m"
+      indicators:
+        ema_period: 18   # ~ equivalent to 5m TF
+        sma_period: 67   # ~ equivalent to 5m TF
+        atr_period: 7    # ~ equivalent to 5m TF
+      tp_multipliers: [7.0, 9.5, 12.0]
+      sl_multipliers: [5.0, 6.0, 7.0]
+    
+    - timeframe: "3m"
+      indicators:
+        ema_period: 54   # ~ equivalent to 5m TF
+        sma_period: 200   # ~ equivalent to 5m TF
+        atr_period: 21    # ~ equivalent to 5m TF
+      tp_multipliers: [7.0, 9.5, 12.0]
+      sl_multipliers: [5.0, 6.0, 7.0]
+
+# === OUTPUT SETTINGS ===
+output:
+  results_dir: "data/grid_results/"
+  
+  # Individual backtest results
+  save_individual: true  # Save each backtest's journal
+  
+  # Aggregated results
+  matrix_file: "grid_results_matrix.csv"
+  summary_file: "grid_results_summary.txt"
+  
+  # Plotting
+  plots:
+    enabled: false  # Disable individual plots (too many)
+    save_best_only: true  # Only plot best configuration per TF
+
+# === METRICS TO TRACK ===
+metrics:
+  # Primary metrics for optimization
+  track:
+    - "total_pnl"
+    - "win_rate"
+    #- "sharpe_ratio"  # Disabled for now -> Not implemented
+    - "max_drawdown"
+    - "total_trades"
+    - "avg_pnl_per_trade"
+    - "profit_factor"
+  
+  # Metric to optimize (used for ranking)
+  optimize: "profit_factor"  # Options: total_pnl, sharpe_ratio, win_rate, profit_factor

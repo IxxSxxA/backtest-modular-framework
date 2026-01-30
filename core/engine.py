@@ -2,7 +2,7 @@
 
 import pandas as pd
 import numpy as np
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 import logging
 from datetime import datetime
 
@@ -19,6 +19,11 @@ class BacktestEngine:
     Main backtesting engine.
     Executes trading strategy on historical data.
     Supports LONG and SHORT positions.
+
+    BALANCE TRACKING:
+    - available_balance: Cash available for new trades (excluding margin/collateral)
+    - margin_used: Amount locked as collateral for SHORT positions
+    - total_equity: available_balance + position_value
     """
 
     @classmethod
@@ -96,6 +101,7 @@ class BacktestEngine:
             )
 
         self.capital = initial_capital
+        self.margin_used = 0  # ✅ NEW: Track margin for SHORT positions
         self.position = None
         self.trades = []
         self.journal = []
@@ -188,14 +194,25 @@ class BacktestEngine:
                             self._update_equity(i, current_price)
                             continue
 
-                should_exit, exit_reason = self.exit_strategy.should_exit(
-                    data_window,
-                    self.position["entry_price"],
-                    self.position["entry_time"],
-                    {**self.position, "current_index": i},
+                # ✅ MODIFICATO: Ora should_exit restituisce 4 valori
+                should_exit, exit_reason, tp_level, sl_level = (
+                    self.exit_strategy.should_exit(
+                        data_window,
+                        self.position["entry_price"],
+                        self.position["entry_time"],
+                        {**self.position, "current_index": i},
+                    )
                 )
 
                 if should_exit:
+                    # ✅ NUOVO: Aggiorna TP/SL nel trade corrente prima di uscire
+                    if self.trades:
+                        self.trades[-1].update(
+                            {
+                                "take_profit": tp_level,
+                                "stop_loss": sl_level,
+                            }
+                        )
                     self._exit_position(i, data_window, exit_reason)
 
             self._update_equity(i, current_price)
@@ -206,25 +223,139 @@ class BacktestEngine:
         if self.position is not None:
             last_idx = total_candles - 1
             last_data = DataWindow(self.data, last_idx, self.lookback_window)
+            # ✅ NUOVO: Ottieni TP/SL finali
+            should_exit, exit_reason, tp_level, sl_level = (
+                self.exit_strategy.should_exit(
+                    last_data,
+                    self.position["entry_price"],
+                    self.position["entry_time"],
+                    {**self.position, "current_index": last_idx},
+                )
+            )
+            # Aggiorna TP/SL nel trade
+            if self.trades:
+                self.trades[-1].update(
+                    {
+                        "take_profit": tp_level,
+                        "stop_loss": sl_level,
+                    }
+                )
             self._exit_position(last_idx, last_data, "END_OF_DATA")
 
         logger.info(f"Backtest completed. Executed {len(self.trades)} trades.")
 
         results = self._calculate_results()
+
+        # ✅ New -> TP SL data
+        self._enhance_results_with_tp_sl_data(results)
+
         return results
+
+    def _enhance_results_with_tp_sl_data(self, results: Dict[str, Any]):
+        """
+        Enhance results with TP/SL data for plotting.
+
+        Crea un DataFrame con tutte le candele e aggiunge colonne per TP/SL
+        basate sui dati del journal.
+        """
+        try:
+            if not self.journal:
+                logger.warning("No journal data available for TP/SL enhancement")
+                return
+
+            # Crea DataFrame dal journal
+            journal_df = pd.DataFrame(self.journal)
+
+            # Crea Series per TP/SL
+            tp_series = pd.Series(
+                journal_df["take_profit"].values, index=journal_df["timestamp"]
+            )
+
+            sl_series = pd.Series(
+                journal_df["stop_loss"].values, index=journal_df["timestamp"]
+            )
+
+            # Crea una copia del data originale con indicatori
+            enhanced_data = self.data.copy()
+
+            # Aggiungi colonne TP/SL al DataFrame principale
+            # Nota: potrebbero esserci timestamp mancanti, quindi usiamo reindex
+            enhanced_data["take_profit"] = tp_series.reindex(enhanced_data.index)
+            enhanced_data["stop_loss"] = sl_series.reindex(enhanced_data.index)
+
+            # Aggiungi altre informazioni utili dal journal
+            enhanced_data["in_position"] = pd.Series(
+                journal_df["in_position"].values, index=journal_df["timestamp"]
+            ).reindex(enhanced_data.index)
+
+            enhanced_data["position_type"] = pd.Series(
+                [
+                    j.get("position_type") if j.get("in_position") else None
+                    for j in self.journal
+                ],
+                index=journal_df["timestamp"],
+            ).reindex(enhanced_data.index)
+
+            # Salva nel risultato
+            results["data_with_indicators"] = enhanced_data
+
+            logger.info(
+                f"Enhanced data with TP/SL columns. Shape: {enhanced_data.shape}"
+            )
+            logger.info(
+                f"Columns added: {[c for c in enhanced_data.columns if 'take' in c or 'stop' in c or 'position' in c]}"
+            )
+
+            # Log di esempio per debug
+            if not enhanced_data["take_profit"].isna().all():
+                tp_count = enhanced_data["take_profit"].notna().sum()
+                logger.info(f"TP values available for {tp_count} candles")
+
+                # Mostra alcuni valori di esempio
+                sample_tp = enhanced_data["take_profit"].dropna().head(3)
+                if len(sample_tp) > 0:
+                    logger.info(f"Sample TP values:\n{sample_tp}")
+
+        except Exception as e:
+            logger.error(f"Error enhancing results with TP/SL data: {e}")
+            # Fallback: usa il data originale senza TP/SL
+            results["data_with_indicators"] = self.data
 
     def _enter_position(
         self, index: int, data_window: DataWindow, direction: str = "LONG"
     ):
-        """Enter a new position with risk management."""
+        """
+        Enter a new position with risk management.
+
+        BALANCE TRACKING:
+        - LONG: capital -= (position_value + commission)
+        - SHORT: capital -= (margin_used + commission), margin_used = position_value
+        """
         entry_price = data_window["close"][0]
         entry_time = data_window.get_timestamp()
+
+        initial_tp = None
+        initial_sl = None
+
+        try:
+            # Chiama should_exit solo per ottenere i livelli (senza exit check)
+            _, _, tp_level, sl_level = self.exit_strategy.should_exit(
+                data_window,
+                entry_price,
+                entry_time,
+                {"position_type": direction.lower()},
+            )
+            initial_tp = tp_level
+            initial_sl = sl_level
+        except Exception as e:
+            logger.warning(f"Could not calculate initial TP/SL: {e}")
 
         if not self.risk_manager.can_trade(self.capital, 0, None):
             logger.warning(f"Risk manager blocked entry at {entry_time}")
             return
 
         stop_loss_price = None
+
         if hasattr(self.exit_strategy, "sl_percent"):
             if direction == "LONG":
                 stop_loss_price = entry_price * (1 - self.exit_strategy.sl_percent)
@@ -267,17 +398,28 @@ class BacktestEngine:
             "position_value_entry": position_value,
             "available_balance_before": self.capital,
             "risk_amount": risk_amount,
+            "take_profit": initial_tp,
+            "stop_loss": initial_sl,
         }
 
-        # ✅ FIX: Different cash flow for LONG vs SHORT
+        # ✅ IMPROVED: Clearer balance tracking
         if direction == "LONG":
-            # LONG: Pay for purchase + commission
+            # LONG: Pay for asset + commission
             self.capital -= position_value + commission_paid
+            self.margin_used = 0
             total_equity_after = self.capital + position_value
+
         else:  # SHORT
-            # SHORT: Receive from sale - commission
-            self.capital += position_value - commission_paid
-            total_equity_after = self.capital + position_value
+            # SHORT: Lock margin as collateral + pay commission
+            # Margin = amount we need to buy back the borrowed asset
+            self.margin_used = position_value
+            self.capital -= (
+                commission_paid  # Only pay commission from available balance
+            )
+            total_equity_after = self.capital  # Equity stays same (we have debt)
+
+        # ✅ IMPROVED: Calculate truly available balance
+        available_for_new_trades = self.capital - self.margin_used
 
         direction_emoji = "📈" if direction == "LONG" else "📉"
 
@@ -286,7 +428,9 @@ class BacktestEngine:
             f"Price: ${entry_price:.4f} | "
             f"Quantity: {quantity:.6f} | "
             f"Position Value: ${position_value:.2f} | "
-            f"Available Balance: ${self.capital:.2f} | "
+            f"Cash Balance: ${self.capital:.2f} | "
+            f"Margin Used: ${self.margin_used:.2f} | "
+            f"Available for New Trades: ${available_for_new_trades:.2f} | "
             f"Total Equity: ${total_equity_after:.2f} | "
             f"Commission: ${commission_paid:.2f}"
         )
@@ -300,14 +444,24 @@ class BacktestEngine:
             "position_value": position_value,
             "commission_entry": commission_paid,
             "total_equity_before": total_equity_before,
-            "available_balance_after_entry": self.capital,
+            "cash_balance_after_entry": self.capital,  # ✅ RENAMED for clarity
+            "margin_used": self.margin_used,  # ✅ NEW
+            "available_for_new_trades": available_for_new_trades,  # ✅ NEW
             "total_equity_after_entry": total_equity_after,
             "risk_amount": risk_amount,
+            "take_profit": initial_tp,
+            "stop_loss": initial_sl,
         }
         self.trades.append(trade)
 
     def _exit_position(self, index: int, data_window: DataWindow, reason: str):
-        """Exit current position."""
+        """
+        Exit current position.
+
+        BALANCE TRACKING:
+        - LONG: capital += (exit_value - commission)
+        - SHORT: capital += (margin_used - exit_value - commission), margin_used = 0
+        """
         exit_price = data_window["close"][0]
         exit_time = data_window.get_timestamp()
 
@@ -318,112 +472,99 @@ class BacktestEngine:
         entry_price = self.position["entry_price"]
         position_size = self.position["position_size"]
         position_type = self.position["position_type"]
-        total_equity_before_entry = self.position["total_equity_before_entry"]
-        position_value_entry = self.position["position_value_entry"]
+        entry_time = self.position["entry_time"]
+        entry_index = self.position["entry_index"]
 
         exit_value = position_size * exit_price
-        exit_commission = exit_value * self.commission
+        commission_paid = exit_value * self.commission
 
-        available_balance_before_exit = self.capital
-
-        # ✅ FIX: Different cash flow for LONG vs SHORT
+        # ✅ IMPROVED: Different cash flow for LONG vs SHORT
         if position_type == "long":
-            # LONG: Sell the position (receive cash - commission)
-            net_exit_value = exit_value - exit_commission
-            self.capital += net_exit_value
+            # LONG: Sell asset, receive cash minus commission
+            gross_pnl = exit_value - (position_size * entry_price)
+            self.capital += exit_value - commission_paid
+
         else:  # SHORT
-            # SHORT: Buy back to close (pay cash + commission)
-            net_exit_cost = exit_value + exit_commission
-            self.capital -= net_exit_cost
+            # SHORT: Buy back borrowed asset, release margin
+            entry_value = position_size * entry_price
+            gross_pnl = entry_value - exit_value
 
-        total_equity_after_exit = self.capital
+            # Return margin minus cost to buy back asset and commission
+            self.capital += self.margin_used - exit_value - commission_paid
+            self.margin_used = 0  # Release margin
 
-        # Calculate P&L considering direction
-        if position_type == "long":
-            gross_pnl = exit_value - position_value_entry
-            pnl_percent = (exit_price / entry_price - 1) * 100
-        else:  # SHORT
-            gross_pnl = position_value_entry - exit_value
-            pnl_percent = (1 - exit_price / entry_price) * 100
+        net_pnl = gross_pnl - self.position["commission_paid"] - commission_paid
+        net_pnl_percent = (net_pnl / self.position["position_value_entry"]) * 100
 
-        total_commission = self.position["commission_paid"] + exit_commission
-        net_pnl = gross_pnl - total_commission
-        net_pnl_percent = (net_pnl / total_equity_before_entry) * 100
-        bars_held = index - self.position["entry_index"]
+        bars_held = index - entry_index
 
-        direction_emoji = "📉" if position_type == "long" else "📈"
-        pnl_emoji = "✅" if net_pnl > 0 else "❌"
-
+        direction_emoji = "✅" if net_pnl > 0 else "❌"
         logger.info(
             f"{direction_emoji} EXIT {position_type.upper()} at {exit_time} | "
             f"Price: ${exit_price:.4f} | "
+            f"P&L: ${net_pnl:+.2f} ({net_pnl_percent:+.2f}%) | "
             f"Reason: {reason} | "
-            f"Bars held: {bars_held} | "
-            f"{pnl_emoji} Net P&L: ${net_pnl:+.2f} ({net_pnl_percent:+.2f}%)"
+            f"Held: {bars_held} bars | "
+            f"New Balance: ${self.capital:.2f}"
         )
 
-        current_trade = self.trades[-1]
-        current_trade.update(
-            {
-                "exit_index": index,
-                "exit_time": exit_time,
-                "exit_price": exit_price,
-                "exit_reason": reason,
-                "bars_held": bars_held,
-                "gross_pnl": gross_pnl,
-                "net_pnl": net_pnl,
-                "pnl_percent": pnl_percent,
-                "net_pnl_percent": net_pnl_percent,
-                "commission_exit": exit_commission,
-                "available_balance_before_exit": available_balance_before_exit,
-                "available_balance_after": self.capital,
-                "total_equity_after": total_equity_after_exit,
-            }
-        )
+        if self.trades:
+            self.trades[-1].update(
+                {
+                    "exit_index": index,
+                    "exit_time": exit_time,
+                    "exit_price": exit_price,
+                    "exit_value": exit_value,
+                    "gross_pnl": gross_pnl,
+                    "commission_exit": commission_paid,
+                    "total_commission": self.position["commission_paid"]
+                    + commission_paid,
+                    "net_pnl": net_pnl,
+                    "net_pnl_percent": net_pnl_percent,
+                    "bars_held": bars_held,
+                    "exit_reason": reason,
+                    "cash_balance_after_exit": self.capital,  # ✅ RENAMED
+                    "margin_after_exit": self.margin_used,  # ✅ NEW
+                }
+            )
 
         self.position = None
 
     def _reverse_position(
         self, index: int, data_window: DataWindow, new_direction: str
     ):
-        """Reverse current position: close existing and open opposite direction."""
+        """Reverse position from LONG to SHORT or vice versa."""
         if self.position is None:
-            logger.warning("Attempted to reverse but no position is open")
+            logger.warning("Cannot reverse position - no position open")
             return
 
-        current_price = data_window["close"][0]
-        current_time = data_window.get_timestamp()
-
-        old_direction = self.position["position_type"]
-
-        logger.info(
-            f"🔄 REVERSING POSITION: {old_direction.upper()} → {new_direction} "
-            f"at {current_time} | Price: ${current_price:.2f}"
-        )
+        current_type = self.position["position_type"]
+        logger.info(f"🔄 Reversing position: {current_type.upper()} → {new_direction}")
 
         self._exit_position(index, data_window, f"REVERSAL_TO_{new_direction}")
         self._enter_position(index, data_window, new_direction)
 
-        logger.info(
-            f"✅ Reversal completed: Now {new_direction} at ${current_price:.4f}"
-        )
-
     def _update_journal(self, index: int, data_window: DataWindow):
-        """Update trading journal with current state."""
+        """Update journal with current state INCLUDING TP/SL levels."""
         current_price = data_window["close"][0]
+        current_time = data_window.get_timestamp()
 
         journal_entry = {
             "index": index,
-            "timestamp": data_window.get_timestamp(),
+            "timestamp": current_time,
             "price": current_price,
             "in_position": self.position is not None,
             "available_balance": self.capital,
-            "total_equity": self.capital,
+            "margin_used": self.margin_used,
+            "total_equity": self.capital,  # sarà aggiornato se in posizione
             "position_size": None,
             "entry_price": None,
             "position_value": None,
             "unrealized_pnl": None,
             "unrealized_pnl_percent": None,
+            "take_profit": None,
+            "stop_loss": None,
+            "position_type": None,
         }
 
         if self.position:
@@ -436,49 +577,72 @@ class BacktestEngine:
                 unrealized_pnl = position_value - (position_size * entry_price)
                 unrealized_pnl_percent = (current_price / entry_price - 1) * 100
             else:  # SHORT
-                entry_value = position_size * entry_price
-                price_change = current_price - entry_price
-                position_value = entry_value - (price_change * position_size)
-                unrealized_pnl = position_value - entry_value
+                position_value = -(position_size * current_price)
+                unrealized_pnl = (entry_price - current_price) * position_size
                 unrealized_pnl_percent = (1 - current_price / entry_price) * 100
 
             total_equity = self.capital + position_value
 
+            # ✅ New: Get current TP/SL levels from exit strategy
+            try:
+                _, _, tp_level, sl_level = self.exit_strategy.should_exit(
+                    data_window,
+                    entry_price,
+                    self.position["entry_time"],
+                    {**self.position, "current_index": index},
+                )
+                journal_entry["take_profit"] = (
+                    float(tp_level) if tp_level is not None else None
+                )
+                journal_entry["stop_loss"] = (
+                    float(sl_level) if sl_level is not None else None
+                )
+            except Exception as e:
+                logger.debug(f"Could not get TP/SL levels: {e}")
+
             journal_entry.update(
                 {
-                    "position_size": position_size,
-                    "entry_price": entry_price,
-                    "position_value": position_value,
-                    "unrealized_pnl": unrealized_pnl,
-                    "unrealized_pnl_percent": unrealized_pnl_percent,
-                    "total_equity": total_equity,
+                    "position_size": float(position_size),
+                    "entry_price": float(entry_price),
+                    "position_value": float(position_value),
+                    "unrealized_pnl": float(unrealized_pnl),
+                    "unrealized_pnl_percent": float(unrealized_pnl_percent),
+                    "total_equity": float(total_equity),
+                    "position_type": position_type,
                 }
             )
 
         self.journal.append(journal_entry)
 
     def _update_equity(self, index: int, current_price: float):
-        """Update equity curve considering position direction."""
+        """
+        Update equity curve considering position direction.
+
+        For LONG: position_value is positive (we own the asset)
+        For SHORT: position_value is negative (we owe the asset - it's a liability)
+        """
         if self.position is None:
             equity = self.capital
         else:
             position_type = self.position["position_type"]
             position_size = self.position["position_size"]
-            entry_price = self.position["entry_price"]
 
             if position_type == "long":
-                position_value = position_size * current_price
+                # LONG: We own the asset (positive value)
+                position_market_value = position_size * current_price
             else:  # SHORT
-                entry_value = position_size * entry_price
-                price_change = current_price - entry_price
-                position_value = entry_value - (price_change * position_size)
+                # SHORT: We owe the asset (negative value = liability)
+                # capital already includes the sale proceeds
+                # position_market_value (negative) represents what we owe
+                position_market_value = -(position_size * current_price)
 
-            equity = self.capital + position_value
+            equity = self.capital + position_market_value
 
         equity_entry = {
             "index": index,
             "equity": equity,
             "available_balance": self.capital,
+            "margin_used": self.margin_used,
             "price": current_price,
             "in_position": self.position is not None,
         }
@@ -550,6 +714,9 @@ class BacktestEngine:
             gross_profits / gross_losses if gross_losses > 0 else float("inf")
         )
 
+        # ✅ IMPORTANT: Max Drawdown calculation
+        # This measures the largest peak-to-trough decline in equity
+        # It's NOT limited by risk per trade -> Consecutive losses accumulate!
         equity_values = [e["equity"] for e in self.equity_curve]
         if equity_values:
             running_max = np.maximum.accumulate(equity_values)

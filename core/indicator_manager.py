@@ -105,6 +105,8 @@ class IndicatorManager:
         """
         Auto-generate unique column name from indicator config.
 
+        IMPORTANT: Excludes 'visual' key (used for plotting only)
+
         Strategy: Use indicator name + all significant parameters
 
         Examples:
@@ -123,10 +125,14 @@ class IndicatorManager:
 
         # Special handling for readability
         if name == "cvdratio":
-            name = "cvd_ratio"  # More readable
+            name = "cvd_ratio"
 
-        # Extract parameters (everything except 'name')
-        params = {k: v for k, v in indicator_config.items() if k != "name"}
+        # Extract parameters (exclude 'name' and 'visual')
+        params = {
+            k: v
+            for k, v in indicator_config.items()
+            if k not in ["name", "visual"]  # ← FIX: Exclude 'visual'
+        }
 
         # Build suffix from significant parameters
         parts = []

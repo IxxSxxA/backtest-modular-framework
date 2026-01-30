@@ -5,54 +5,41 @@
 # === DATA SOURCE ===
 data:
   symbols: ["XPLUSDT"]
-  timeframe: "1m"  # Raw data is always 1m
+  timeframe: "1m"
   source_dir: "data/raw"
-  source_file: "XPLUSDT-1m-2025-2026-01-22" # File must be parquet format 1m TF 
-# === DATA SOURCE END ===
-
-# =============================================================================
-# =============================================================================
+  source_file: "XPLUSDT-1m"
 
 # === BACKTEST SETTINGS ===
 backtest:
-  # Test period (optional - uses all data if omitted)
-  # Start will be automatically normalized to midnight (00:00)
   period:
-    start: "2026-01-16"
-    end: "2026-01-22"
+    start: "2026-01-15"
+    end: ""
   
-  # Initial capital
   capital:
     initial: 10000
   
-  # Trading costs
   costs:
-    commission: 0.001      # 0.1% per trade (entry + exit)
-    # Note: Commission is applied twice (entry + exit)
-    # Total cost per round-trip: ~0.2%
+    commission: 0.001
   
-  # Execution settings
   execution:
-    lookback_window: 100   # Bars to keep in memory for indicators
-
+    lookback_window: 100
 
 # === STRATEGY CONFIGURATION ===
-# This is the heartbeat of the framework - like Chart TF in TradingView
-# Strategies run on this timeframe
 strategy:
   timeframe: "5m"
   
-  # ========================================
-  # Trading LONG/SHORT configuration
-  # ========================================
+  # Trading configuration
   trading:
-    allow_long: true   # Enable LONG positions
-    allow_short: true  # Enable SHORT positions
-    # Set both to true to test market-neutral strategy
-    
-    # Position Reversal Settings
-    allow_reversal: true  # Enable position reversal
-    # If false, wait for SL/TP before allowing opposite direction
+    allow_long: true
+    allow_short: true
+    allow_reversal: false
+  
+  # Risk management
+  risk:
+    name: "fixed_percent"
+    params:
+      risk_per_trade: 0.03
+      max_drawdown: 0.15
   
   # ========================================
   # ENTRY STRATEGY
@@ -60,24 +47,51 @@ strategy:
   entry:
     name: "ema_cross_sma_cvd"
     
-    # Strategy-specific parameters
     params:
-      long_threshold: 50.0   # LONG if CVD > threshold
-      short_threshold: 50.0  # SHORT if CVD < threshold
+      long_threshold: 50.0
+      short_threshold: 50.0
     
-    # Indicators needed by this strategy
-    # Framework auto-generates column names: ema_54, sma_200, cvd_ratio_1_15
     indicators:
       - name: "ema"
         period: 54
+        visual:
+          plot: true
+          overlay: true
+          color: "#0052CC"  # Orange
+          linewidth: 2
+          alpha: 0.8
+          label: "EMA 54"
       
       - name: "sma"
         period: 200
+        visual:
+          plot: true
+          overlay: true
+          color: "#FF6B00"  # Blue
+          linewidth: 2
+          alpha: 0.8
+          label: "SMA 200"
       
       - name: "cvdratio"
-        cumulative_period_minutes: 1   # Rolling window for CVD accumulation (1m minimum)
-        signal_period_minutes: 15       # Rolling window for min/max
-        use_quote: false                # Use base volume (not quote volume)
+        cumulative_period_minutes: 1
+        signal_period_minutes: 15
+        use_quote: false
+        visual:
+          plot: true
+          overlay: false
+          color: "#8E44AD"
+          linewidth: 1.5
+          alpha: 0.7
+          label: "CVD Signal %"
+          panel:
+            ylim: [0, 100]
+            zero_line: false
+            hlines:
+              - value: 50
+                color: "#7F8C8D"
+                linestyle: "-"
+                alpha: 0.3
+                label: "Neutral"
   
   # ========================================
   # EXIT STRATEGY
@@ -85,122 +99,99 @@ strategy:
   exit:
     name: "atr_based_exit"
     
-    # Strategy-specific parameters
     params:
-      tp_multiplier: 9.5
-      sl_multiplier: 5
+      tp_multiplier: 7
+      sl_multiplier: 6
+      dynamic: true
     
-    # Indicators needed by this strategy
     indicators:
       - name: "atr"
         period: 21
-        method: "wilder"  # Original Wilder's method (more accurate)
-  
-  # ========================================
-  # RISK MANAGEMENT
-  # ========================================
-  risk:
-    name: "fixed_percent"
+        method: "wilder"
     
-    params:
-      risk_per_trade: 0.03    # 3% risk per trade
-      max_drawdown: 0.15      # Stop trading if 15% drawdown
-    
-    # No indicators needed for this risk manager
+    # Visual configuration for SL/TP levels
+    visual:
+      sl_tp:
+        enabled: true
+        # dynamic: true -> It's the strategy that decide how to handle SL/TP
+        style:
+          tp_color: "#27AE60"
+          sl_color: "#E74C3C"
+          zone_color: "#F1C40F"
+          zone_alpha: 0.1
+          line_width: 1.5
+          line_style: "--"
+        annotations:
+          show_entry_exit: true
+          show_pnl: true
+          font_size: 8
+          box_style: "round,pad=0.3"
 
-
-# === PLOTTING CONFIGURATION ===
-plotting:
-  # ========================================
-  # INDICATORS ON PRICE CHART
-  # ========================================
-  indicators_to_plot:
-    - column: "ema_54"      # Auto-generated column name
-      label: "EMA 54"
-      color: "#0052CC"
-      linewidth: 2
-      alpha: 0.8
-    
-    - column: "sma_200"
-      label: "SMA 200"
-      color: "#FF6B00"
-      linewidth: 2
-      alpha: 0.8
-    
-    # EXAMPLE: Plot an indicator NOT used by strategy (for visual analysis only)
-    # Uncomment to add Supertrend to the chart:
-    # - column: "supertrend_10_3"  # Will be auto-generated if you add to extra_indicators
-    #   label: "Supertrend"
-    #   color: "#9B59B6"
-    #   linewidth: 1.5
-    #   alpha: 0.7
-
-  # ========================================
-  # STOP LOSS / TAKE PROFIT VISUALIZATION
-  # ========================================
-  sl_tp:
-    enabled: true
-    dynamic: true  # Enable dynamic trailing SL/TP
-    style:
-      tp_color: "#27AE60"      # Green
-      sl_color: "#E74C3C"      # Red
-      zone_color: "#F1C40F"    # Yellow for fill
-      zone_alpha: 0.1
-      line_width: 1.5
-      line_style: "--"
-    
-    annotations:
-      show_entry_exit: true
-      show_pnl: true
-      font_size: 8
-      box_style: "round,pad=0.3"
+# ========================================
+# ANALYSIS INDICATORS (not used by strategy)
+# ========================================
+analysis_indicators:
+  # - name: "rsi"
+  #   period: 14
+  #   visual:
+  #     plot: true
+  #     overlay: false
+  #     color: "#E74C3C"
+  #     linewidth: 1.5
+  #     label: "RSI 14"
+  #     panel:
+  #       ylim: [0, 100]
+  #       zero_line: false
+  #       hlines:
+  #         - value: 30
+  #           color: "#95A5A6"
+  #           linestyle: "--"
+  #           alpha: 0.5
+  #           label: "Oversold"
+  #         - value: 70
+  #           color: "#95A5A6"
+  #           linestyle: "--"
+  #           alpha: 0.5
+  #           label: "Overbought"
   
-  # ========================================
-  # SEPARATE PANELS (oscillators, volume, etc.)
-  # ========================================
-  separate_panels:
-    - column: "cvd_ratio_1_15"  # Auto-generated: cvdratio with params 1, 15
-      label: "CVD Signal %"
-      color: "#8E44AD"
-      linewidth: 1.5
-      alpha: 0.7
-      type: "oscillator"
-      ylim: [0, 100]
-      zero_line: false
-      # Threshold lines
-      hlines:
-        - value: 50
-          color: "#7F8C8D"
-          linestyle: "-"
-          alpha: 0.3
-          label: "Neutral"
-  
-  # Layout configuration
+  # Uncomment to add MACD
+  # - name: "macd"
+  #   fast_period: 12
+  #   slow_period: 26
+  #   signal_period: 9
+  #   visual:
+  #     plot: true
+  #     overlay: false
+  #     color: "#3498DB"
+  #     linewidth: 1.5
+  #     label: "MACD"
+  #     panel:
+  #       zero_line: true
+  #       hlines:
+  #         - value: 0
+  #           color: "#7F8C8D"
+  #           linestyle: "-"
+  #           alpha: 0.3
+
+# ========================================
+# PLOT LAYOUT & STYLE
+# ========================================
+plot_config:
   layout:
     price_height_ratio: 3
     panel_height_ratio: 1
     position_height_ratio: 1
+    figure_size: [16, 10]
   
-  # Style settings
   style:
     background_color: "#f5f5f5"
+    grid_color: "#E0E0E0"
     grid_alpha: 0.2
-
-
-# === EXTRA INDICATORS (Optional) ===
-# Indicators calculated for analysis/plotting but NOT used by the strategy
-# Uncomment to enable:
-# 
-# extra_indicators:
-#   - name: "supertrend"
-#     period: 10
-#     multiplier: 3
-#     # Auto-generates column: supertrend_10_3
-#   
-#   - name: "rsi"
-#     period: 14
-#     # Auto-generates column: rsi_14
-
+    candlestick:
+      up_color: "#26A69A"
+      down_color: "#EF5350"
+      wick_color: "#000000"
+      alpha: 0.8
 
 # === OUTPUT SETTINGS ===
 output:
@@ -208,4 +199,6 @@ output:
     save_dir: "data/journals/"
   
   plots:
-    enabled: true  # Set to false to disable plotting
+    enabled: true
+    save_dir: "data/plots/"
+    formats: ["png", "html"]  # Supporta entrambi

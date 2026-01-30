@@ -33,7 +33,7 @@ class BaseExitStrategy(ABC):
     @abstractmethod
     def should_exit(
         self, data, entry_price: float, entry_time, position_info: Dict[str, Any]
-    ) -> Tuple[bool, Optional[str]]:
+    ) -> Tuple[bool, Optional[str], Optional[float], Optional[float]]:
         """
         Determine if we should exit a position.
 
@@ -44,8 +44,11 @@ class BaseExitStrategy(ABC):
             position_info: Additional position information (e.g., position_type: 'long'/'short')
 
         Returns:
-            Tuple of (should_exit: bool, reason: str or None)
-            Reason examples: 'TAKE_PROFIT', 'STOP_LOSS', 'TRAILING_STOP', 'TIME_EXIT', 'SIGNAL_REVERSAL'
+            Tuple of:
+            - should_exit: bool
+            - reason: str or None
+            - tp_level: float or None (current take profit level)
+            - sl_level: float or None (current stop loss level)
         """
         pass
 

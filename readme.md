@@ -1,3 +1,6 @@
+Ecco il README aggiornato con le nuove funzionalità TP/SL dinamiche aggiunte a PHASE 4.E:
+
+```markdown:readme.md
 # Modular Backtesting Framework in Python
 
 ## 🎯 OVERVIEW
@@ -14,6 +17,12 @@ A **simple, modular, and fast** backtesting system designed for trading strategy
 - **Forward-fill alignment** for consistent 1-minute resolution backtesting
 - **Accurate OHLC-based indicators** (ATR, Bollinger Bands, etc.) on target timeframe
 
+### **Dynamic TP/SL Visualization**
+- **ATR-based Take Profit and Stop Loss** with dynamic or fixed levels
+- **Real-time TP/SL calculation** updated every candle or fixed at entry
+- **Visual zones plotting** with proper color coding for LONG/SHORT positions
+- **Comprehensive journaling** of TP/SL evolution for analysis
+
 ### **Performance & Caching**
 - **Intelligent disk caching** - indicators calculated once, used infinitely
 - **Parquet format** for fast I/O and compression
@@ -27,7 +36,7 @@ A **simple, modular, and fast** backtesting system designed for trading strategy
 ### **Professional Output**
 - **Comprehensive journaling** in Parquet format
 - **Advanced metrics**: Sharpe, Sortino, Max Drawdown, Win Rate, Profit Factor
-- **Visualization**: Equity curves, drawdown charts, entry/exit signals
+- **Visualization**: Equity curves, drawdown charts, entry/exit signals, TP/SL zones
 - **Structured results**: JSON, CSV, and HTML reports
 
 ## 🚀 QUICK START
@@ -97,6 +106,34 @@ indicators:
     column: "sma_200"
 ```
 
+### **Dynamic TP/SL System**
+
+The framework supports **both dynamic and fixed TP/SL levels** based on ATR:
+
+**Configuration:**
+```yaml
+exit:
+  name: "atr_based_exit"
+  params:
+    tp_multiplier: 7
+    sl_multiplier: 6
+    dynamic: true  # true=TP/SL update every candle, false=fixed at entry
+    
+  visual:
+    sl_tp:
+      enabled: true
+      style:
+        tp_color: "#27AE60"  # Green for profit
+        sl_color: "#E74C3C"  # Red for loss
+        zone_alpha: 0.1
+```
+
+**Visual Zones:**
+- **LONG positions**: TP zone (green) above entry, SL zone (red) below entry
+- **SHORT positions**: TP zone (green) below entry, SL zone (red) above entry
+- **Dynamic lines**: TP/SL levels that move with ATR when `dynamic: true`
+- **Fixed lines**: Horizontal TP/SL levels when `dynamic: false`
+
 ### **Consistency Principle**
 - **Backtest-Production Parity**: Same calculation logic in both environments
 - **No magic numbers**: All parameters configurable via YAML
@@ -119,21 +156,31 @@ Fixed calculations, consistency checks, detailed logging, calculation reference.
 - Updated indicator calculators to work with resampled data
 - Support for accurate OHLC-based indicators
 
-### **📋 PHASE 4.B: DOCUMENTATION REORGANIZATION** 
-**CURRENT PHASE**
-- ✅ Reorganize main README structure
-- ✅ Update all code references
-- ✅ Add examples/concepts for future new multi-TF system
+### **✅ PHASE 4.B: DOCUMENTATION REORGANIZATION** 
+- Reorganize main README structure
+- Update all code references
+- Add examples/concepts for future new multi-TF system
 
-### **📋 PHASE 4.C: ENHANCED FEATURES** 
-- ✅ Advanced strategies -> ema_cross_sma_cvd.py
+### **✅ PHASE 4.C: ENHANCED ENTRY STRATEGIES** 
+- Advanced strategies -> ema_cross_sma_cvd.py
 
-=========================================================================
+### **✅ PHASE 4.D: FRAMEWORK REFACTORING** 
+**Unified indicator declaration** - eliminated redundancy between strategy and indicators sections
+- Single source of truth for indicator parameters
+- Auto-generated column names
+- Strategy self-contained declaration
 
-## BREAKING CHANGES TO CONFIG.YAML
+### **✅ PHASE 4.E: DYNAMIC TP/SL VISUALIZATION** 
+**Enhanced exit strategies with visual TP/SL zones**
+- ATR-based TP/SL with dynamic/fixed modes
+- Real-time TP/SL calculation every candle
+- Visual zones plotting for both LONG and SHORT positions
+- Complete journaling of TP/SL evolution
+- Color-coded zones (green for TP, red for SL)
 
-### **📋 PHASE 4.F: FRAMEWORK REFACTORING** 
-🔧 Framework Refactoring Summary 
+---
+
+## 🔧 Framework Refactoring Summary 
 
 ### ✅ Main Goal Achieved
 **Unified indicator declaration in strategy config** - eliminated redundancy between `strategy` and `indicators` sections.
@@ -178,7 +225,48 @@ strategy:
 
 ---
 
-### 2. **Auto-Generated Column Names**
+### 2. **Dynamic TP/SL Configuration**
+
+```yaml
+exit:
+  name: "atr_based_exit"
+  params:
+    tp_multiplier: 7
+    sl_multiplier: 6
+    dynamic: true  # ✅ New parameter: true=dynamic, false=fixed
+    
+  indicators:
+    - name: "atr"
+      period: 21
+      method: "wilder"
+    
+  # Visual configuration for SL/TP levels
+  visual:
+    sl_tp:
+      enabled: true
+      style:
+        tp_color: "#27AE60"
+        sl_color: "#E74C3C"
+        zone_color: "#F1C40F"
+        zone_alpha: 0.1
+        line_width: 1.5
+        line_style: "--"
+      annotations:
+        show_entry_exit: true
+        show_pnl: true
+        font_size: 8
+        box_style: "round,pad=0.3"
+```
+
+**Features:**
+- ✅ **Dynamic mode**: TP/SL update every candle based on current ATR
+- ✅ **Fixed mode**: TP/SL calculated once at entry and remain constant
+- ✅ **Visual zones**: Color-coded areas between entry and TP/SL levels
+- ✅ **Position-aware**: Different zones for LONG vs SHORT positions
+
+---
+
+### 3. **Auto-Generated Column Names**
 
 The framework now automatically generates column names from indicator configs:
 
@@ -196,7 +284,7 @@ The framework now automatically generates column names from indicator configs:
 
 ---
 
-### 3. **Strategy Base Classes** - New `indicators` Property
+### 4. **Strategy Base Classes** - New `indicators` Property
 
 All strategy base classes now have:
 
@@ -227,7 +315,7 @@ self.indicators = []
 
 ---
 
-### 4. **IndicatorManager** - Auto-Discovery
+### 5. **IndicatorManager** - Auto-Discovery
 
 **New method:** `calculate_from_strategies()`
 
@@ -259,157 +347,53 @@ data_with_indicators = indicator_manager.calculate_from_strategies(
 
 ---
 
-### 5. **backtest.py** - Simplified Flow
+### 6. **Enhanced Journaling with TP/SL Data**
 
-**Key changes:**
-1. Create strategies **before** calculating indicators
-2. Pass `indicators` list inside params to each strategy
-3. Use `calculate_from_strategies()` instead of `calculate_all_indicators()`
+The journal now includes TP/SL levels for each candle when in position:
 
 ```python
-# Step 1: Create strategies
-entry_strategy, exit_strategy, risk_manager = create_strategy_components(config)
-
-# Step 2: Auto-calculate their indicators
-data_with_indicators = indicator_manager.calculate_from_strategies(
-    data, entry_strategy, exit_strategy, risk_manager, symbol, strategy_tf
-)
+journal_entry = {
+    "timestamp": current_time,
+    "price": current_price,
+    "in_position": True,
+    "take_profit": tp_level,    # ✅ NEW
+    "stop_loss": sl_level,      # ✅ NEW
+    "position_type": "short",   # ✅ NEW
+    # ... other fields
+}
 ```
 
----
-
-## 📋 Files Modified
-
-### Core Files:
-- ✅ `config.yaml` - new structure
-- ✅ `backtest.py` - uses new strategy->indicator flow
-- ✅ `core/indicator_manager.py` - auto-naming + deduplication
-
-### Strategy Files:
-- ✅ `strategies/entry/base_entry.py` - added `self.indicators`
-- ✅ `strategies/entry/ema_cross_sma.py` - extracts column names from indicators
-- ✅ `strategies/entry/ema_cross_sma_cvd.py` - extracts column names from indicators
-- ✅ `strategies/exit/base_exit.py` - added `self.indicators`
-- ✅ `strategies/exit/atr_based_exit.py` - extracts column names from indicators
-- ✅ `strategies/risk/base_risk.py` - added `self.indicators`
+**Benefits:**
+- ✅ Complete historical record of TP/SL evolution
+- ✅ Enables accurate dynamic plotting
+- ✅ Supports analysis of TP/SL behavior
 
 ---
 
-## 🎨 Optional: Extra Indicators for Plotting
-
-You can calculate indicators for visualization without using them in strategy logic:
-
-```yaml
-strategy:
-  entry:
-    indicators:
-      - name: "ema"
-        period: 54  # Used by strategy
-
-# Optional: indicators ONLY for analysis/plotting
-extra_indicators:
-  - name: "supertrend"
-    period: 10
-    multiplier: 3
-  - name: "rsi"
-    period: 14
-
-plotting:
-  indicators_to_plot:
-    - column: "ema_54"         # From entry strategy
-    - column: "supertrend_10_3"  # From extra_indicators
-    - column: "rsi_14"          # From extra_indicators
-```
-
----
-
-## 🚀 Benefits Summary
-
-1. **Zero Redundancy** - each parameter declared once
-2. **Maintainability** - change indicator period in one place
-3. **Self-Documenting** - strategy config shows exactly what it needs
-4. **Automatic Deduplication** - shared indicators calculated once
-5. **Scalability** - easy to add new strategies without config bloat
-6. **Flexibility** - supports extra indicators for plotting
-
----
-
-## 🔄 Migration Guide
-
-### Old Config → New Config:
-
-```yaml
-# OLD:
-strategy:
-  entry:
-    params:
-      ema_period: 54
-indicators:
-  - name: "ema"
-    params: {period: 54}
-
-# NEW:
-strategy:
-  entry:
-    params: {}  # Strategy logic params only
-    indicators:
-      - name: "ema"
-        period: 54  # No more 'params' wrapper!
-```
-
-### Old Strategy → New Strategy:
+### 7. **Advanced Plotting with TP/SL Zones**
 
 ```python
-# OLD:
-class MyStrategy(BaseEntryStrategy):
-    def __init__(self, params):
-        self.ema_period = params.get("ema_period")
-        self.ema_column = f"ema_{self.ema_period}"
-
-# NEW:
-class MyStrategy(BaseEntryStrategy):
-    def __init__(self, params):
-        super().__init__(params)  # Sets self.indicators!
-        
-        # Extract column names
-        for ind in self.indicators:
-            if ind['name'] == 'ema':
-                self.ema_column = f"ema_{ind['period']}"
+# reports/plot_helpers.py
+def plot_sl_tp_zones(ax, data, trades, sl_tp_config):
+    """
+    Plot dynamic TP/SL zones with proper LONG/SHORT handling.
+    
+    LONG:  TP zone (green) above entry, SL zone (red) below entry
+    SHORT: TP zone (green) below entry, SL zone (red) above entry
+    """
 ```
 
----
-
-## ✅ Testing Checklist
-
-- [ ] Run backtest with new config format
-- [ ] Verify indicators are calculated correctly
-- [ ] Check column names match expectations
-- [ ] Confirm deduplication works (check logs)
-- [ ] Test with extra_indicators (optional)
-- [ ] Validate cached indicators still work
+**Visual Features:**
+- ✅ Color-coded zones based on position direction
+- ✅ Dynamic lines when `dynamic: true`
+- ✅ Fixed lines when `dynamic: false`
+- ✅ Proper legend handling
 
 ---
 
-## 📝 Notes
+## 📊 NEXT PHASES
 
-- **Backward compatibility:** Not maintained - this is a breaking change
-- **Cache keys:** Updated to include ALL parameters (more robust)
-- **Column naming:** Consistent across all indicators
-- **No override option:** Decided against `column:` override to keep it simple
-
----
-
-## 🎉 Result
-
-A cleaner, more maintainable framework where:
-- Strategies are **self-contained** (declare their own needs)
-- Config is **DRY** (Don't Repeat Yourself)
-- System is **smart** (auto-deduplication, auto-naming)
-- Code is **scalable** (easy to add new strategies/indicators)
-
-=========================================================================
-
-### **📋 PHASE 4.E: ENHANCED FEATURES** 
+### **📋 PHASE 5: ENHANCED FEATURES** 
 - [ ] Multiple entry/exit strategies
 - [ ] Multi-asset support
 - [ ] Walk-forward testing
@@ -417,7 +401,7 @@ A cleaner, more maintainable framework where:
 - [ ] Parameter optimization
 - [ ] Advanced risk metrics
 
-### **📋 PHASE 5: PRODUCTION READY**
+### **📋 PHASE 6: PRODUCTION READY**
 - [ ] Robust error handling
 - [ ] Config and data validation
 - [ ] Structured logging
@@ -425,18 +409,65 @@ A cleaner, more maintainable framework where:
 - [ ] Utility scripts
 - [ ] Basic web UI
 
-### **📋 PHASE 6: ADVANCED ECOSYSTEM**
+### **📋 PHASE 7: ADVANCED ECOSYSTEM**
 - [ ] Plugin system
-- [ ] Cloud storage
+- [ ] Cloud storage 
 - [ ] REST API
 - [ ] Live trading bridge
 - [ ] Comprehensive documentation
 
-=========================================================================
+---
 
 ## 📊 CURRENT STATUS
 
 **Framework:** ✅ Stable with multi-TF support  
+**TP/SL System:** ✅ Dynamic/Fixed modes with visualization  
 **Performance:** ~5s for subsequent runs (cached)  
 **Data:** 1-minute Parquet files, auto-resampled  
-**Output:** Journals in Parquet, PNG charts, JSON metrics  
+**Output:** Journals with TP/SL data, PNG charts with zones, JSON metrics  
+
+---
+
+## 📖 GLOSSARY
+
+**Capital / Cash Balance**
+- Physical cash in account
+- Can increase (SHORT) or decrease (LONG) on entry
+
+**Margin Used**
+- Amount locked as collateral for SHORT positions
+- Must be available to close position
+- Reduces available capital for new trades
+
+**Available for New Trades**
+- Capital actually usable for new positions
+- Formula: cash_balance - margin_used
+- Most important metric for position sizing
+
+**Total Equity**
+- Net account value including positions
+- Formula: cash_balance + position_value
+- What you'd have if you closed everything
+
+**Max Drawdown**
+- Largest peak-to-trough equity decline (%)
+- Cumulative effect of losing trades
+- Independent of per-trade risk percentage
+
+**Dynamic TP/SL**
+- Take Profit and Stop Loss levels that update every candle
+- Based on current ATR value (when using ATR-based exit)
+- Visualized as moving lines on price chart
+
+**Fixed TP/SL**
+- TP/SL levels calculated once at entry
+- Remain constant throughout the position
+- Visualized as horizontal lines on price chart
+
+**TP/SL Zones**
+- Colored areas between entry price and TP/SL levels
+- Green zone: path to profit (TP direction)
+- Red zone: path to loss (SL direction)
+- Helps visualize risk/reward ratio
+
+

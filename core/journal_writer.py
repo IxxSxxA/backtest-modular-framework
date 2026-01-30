@@ -87,10 +87,17 @@ class JournalWriter:
 
         # 6. Save DataFrame with indicators
         if "data" in results:
-            data_path = run_dir / "data_with_indicators.parquet"
-            results["data"].to_parquet(data_path)
-            file_paths["data"] = data_path
-            logger.info(f"Saved data with indicators: {data_path}")
+            # 1. Parquet (principale - efficiente)
+            parquet_path = run_dir / "data_with_indicators.parquet"
+            results["data"].to_parquet(parquet_path)
+            file_paths["data"] = parquet_path
+
+            # 2. CSV leggero (solo per ispezione manuale)
+            csv_path = run_dir / "data_with_indicators.csv"
+            # Salva solo le prime 1000 righe per evitare file enormi
+            results["data"].iloc[:1000].to_csv(csv_path, index=True)
+
+            logger.info(f"Saved data: {parquet_path} (full) + {csv_path} (sample)")
 
         # 7. Save summary text
         file_paths["summary"] = self._save_summary_text(results, run_dir)

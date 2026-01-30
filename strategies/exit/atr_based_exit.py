@@ -2,7 +2,7 @@
 
 from .base_exit import BaseExitStrategy
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Tuple, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -18,114 +18,102 @@ class ATRBasedExit(BaseExitStrategy):
       params:
         tp_multiplier: 9.0
         sl_multiplier: 5.5
-      indicators:
-        - name: "atr"
-          period: 21
-          method: "wilder"
+        dynamic: true  # true=TP/SL si aggiornano ogni candela, false=fissi all'entry
     ```
-
-    Column name auto-generated: atr_21_wilder (or atr_21 if method is default)
     """
 
     def __init__(self, params: dict = None):
         super().__init__(params)
 
-        # Extract strategy-specific parameters
+        # Extract parameters
         self.tp_multiplier = float(self.params.get("tp_multiplier", 9.0))
         self.sl_multiplier = float(self.params.get("sl_multiplier", 5.5))
+        self.dynamic = bool(self.params.get("dynamic", True))  # Default: dynamic
 
-        # Build column name from indicator config
+        # Cache per livelli fissi (se dynamic=False)
+        self.fixed_levels_cache = {}  # (entry_time, position_type) -> (tp, sl)
+
+        # ATR column name
         self.atr_column = None
-
         for ind in self.indicators:
             if ind["name"] == "atr":
                 period = ind.get("period", 14)
                 method = ind.get("method", "wilder")
-
-                # Auto-generated column name logic
-                if method == "wilder":
-                    # Default method, don't include in name
-                    self.atr_column = f"atr_{period}"
-                else:
-                    self.atr_column = f"atr_{period}_{method}"
+                self.atr_column = (
+                    f"atr_{period}" if method == "wilder" else f"atr_{period}_{method}"
+                )
                 break
 
         if not self.atr_column:
-            raise ValueError(
-                f"{self.name} requires 'atr' indicator in config! "
-                f"Got: {self.indicators}"
-            )
+            raise ValueError(f"{self.name} requires 'atr' indicator!")
 
         logger.info(
-            f"Initialized ATRBasedExit: "
-            f"Column={self.atr_column}, TP={self.tp_multiplier}x, SL={self.sl_multiplier}x"
+            f"Initialized ATRBasedExit: TP={self.tp_multiplier}x, SL={self.sl_multiplier}x, "
+            f"Dynamic={self.dynamic}, Column={self.atr_column}"
         )
+
+    def _calculate_tp_sl(
+        self, entry_price: float, atr_value: float, position_type: str
+    ) -> tuple:
+        """Calculate TP/SL levels given current ATR."""
+        if position_type == "long":
+            tp = entry_price + (atr_value * self.tp_multiplier)
+            sl = entry_price - (atr_value * self.sl_multiplier)
+        else:  # short
+            tp = entry_price - (atr_value * self.tp_multiplier)
+            sl = entry_price + (atr_value * self.sl_multiplier)
+        return tp, sl
 
     def should_exit(
         self, data, entry_price: float, entry_time, position_info: Dict[str, Any]
-    ):
+    ) -> Tuple[bool, Optional[str], Optional[float], Optional[float]]:
         """
-        Check if we should exit based on ATR multiples.
+        Check exit conditions.
 
-        For LONG positions:
-        - Take Profit: entry_price + (ATR * tp_multiplier)
-        - Stop Loss: entry_price - (ATR * sl_multiplier)
-
-        For SHORT positions:
-        - Take Profit: entry_price - (ATR * tp_multiplier)
-        - Stop Loss: entry_price + (ATR * sl_multiplier)
+        Returns:
+            (should_exit: bool, reason: str, tp_level: float, sl_level: float)
         """
         try:
-            # Get current ATR value
             if self.atr_column not in data:
-                logger.error(f"Required indicator '{self.atr_column}' not found")
-                return False, None
+                logger.error(f"ATR column '{self.atr_column}' not found")
+                return False, None, None, None
 
             current_atr = data[self.atr_column][0]
             current_price = data["close"][0]
-
-            # Get position type (default to 'long')
             position_type = position_info.get("position_type", "long")
 
-            # Calculate TP and SL levels
+            # Calculate TP/SL levels
+            if not self.dynamic:
+                # Modalità FISSA: usa l'ATR dell'entry, memorizza in cache
+                cache_key = (entry_time, position_type)
+                if cache_key not in self.fixed_levels_cache:
+                    # Prima volta: calcola con ATR dell'entry
+                    tp, sl = self._calculate_tp_sl(
+                        entry_price, current_atr, position_type
+                    )
+                    self.fixed_levels_cache[cache_key] = (tp, sl)
+
+                tp_level, sl_level = self.fixed_levels_cache[cache_key]
+            else:
+                # Modalità DINAMICA: ricalcola ogni candela
+                tp_level, sl_level = self._calculate_tp_sl(
+                    entry_price, current_atr, position_type
+                )
+
+            # Check exit conditions
             if position_type == "long":
-                take_profit = entry_price + (current_atr * self.tp_multiplier)
-                stop_loss = entry_price - (current_atr * self.sl_multiplier)
+                if current_price >= tp_level:
+                    return True, "TAKE_PROFIT", tp_level, sl_level
+                elif current_price <= sl_level:
+                    return True, "STOP_LOSS", tp_level, sl_level
+            else:  # short
+                if current_price <= tp_level:
+                    return True, "TAKE_PROFIT", tp_level, sl_level
+                elif current_price >= sl_level:
+                    return True, "STOP_LOSS", tp_level, sl_level
 
-                # Check exit conditions
-                if current_price >= take_profit:
-                    logger.info(
-                        f"Take Profit hit: {current_price:.4f} >= {take_profit:.4f} "
-                        f"(ATR={current_atr:.4f}, Entry={entry_price:.4f})"
-                    )
-                    return True, "TAKE_PROFIT"
+            return False, None, tp_level, sl_level
 
-                elif current_price <= stop_loss:
-                    logger.info(
-                        f"Stop Loss hit: {current_price:.4f} <= {stop_loss:.4f} "
-                        f"(ATR={current_atr:.4f}, Entry={entry_price:.4f})"
-                    )
-                    return True, "STOP_LOSS"
-
-            elif position_type == "short":
-                # Inverse logic for short positions
-                take_profit = entry_price - (current_atr * self.tp_multiplier)
-                stop_loss = entry_price + (current_atr * self.sl_multiplier)
-
-                if current_price <= take_profit:
-                    logger.info(
-                        f"Take Profit hit (SHORT): {current_price:.4f} <= {take_profit:.4f}"
-                    )
-                    return True, "TAKE_PROFIT"
-
-                elif current_price >= stop_loss:
-                    logger.info(
-                        f"Stop Loss hit (SHORT): {current_price:.4f} >= {stop_loss:.4f}"
-                    )
-                    return True, "STOP_LOSS"
-
-            return False, None
-
-        except (IndexError, KeyError) as e:
-            logger.warning(f"Data access error in should_exit: {e}")
-            return False, None
+        except Exception as e:
+            logger.error(f"Error in should_exit: {e}")
+            return False, None, None, None

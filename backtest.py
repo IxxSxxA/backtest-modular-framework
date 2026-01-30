@@ -22,8 +22,11 @@ from strategies.risk.fixed_percent import FixedPercent
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+    # level=logging.INFO, format="%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s | %(name)s | %(message)s",
 )
+
 logger = logging.getLogger(__name__)
 
 
@@ -229,14 +232,13 @@ def main():
     )
 
     # 10. Run backtest
-    logger.info("▶️ Running backtest...")
     logger.info("=" * 60)
+    logger.info("▶️  Running backtest...")
 
     results = engine.run()
 
-    logger.info("=" * 60)
-
     # 11. Save results
+    logger.info("=" * 60)
     logger.info("💾 Saving results...")
     journal_writer = JournalWriter(config)
 

@@ -118,17 +118,17 @@ class EMACrossSMACVD(BaseEntryStrategy):
                     return False
 
             # Detect crosses
-            isCrossBullish = ema_prev < sma_prev and ema_current >= sma_current
-            isCrossBearish = ema_prev > sma_prev and ema_current <= sma_current
+            isCrossBullish = ema_prev <= sma_prev and ema_current > sma_current
+            isCrossBearish = ema_prev >= sma_prev and ema_current < sma_current
 
             # Logging
             if isCrossBullish:
                 logger.info(
-                    f"EMA={ema_current:.4f} > SMA={sma_current:.4f} -> Bullish Cross | CVD={cvd_ratio:.1f}%"
+                    f"NEW SIGNAL -> Bullish Cross | EMA={ema_current:.5f} > SMA={sma_current:.5f} | CVD={cvd_ratio:.1f}%"
                 )
             if isCrossBearish:
                 logger.info(
-                    f"EMA={ema_current:.4f} < SMA={sma_current:.4f} -> Bearish Cross | CVD={cvd_ratio:.1f}%"
+                    f"NEW SIGNAL -> Bearish Cross | EMA={ema_current:.5f} < SMA={sma_current:.5f} | CVD={cvd_ratio:.1f}%"
                 )
 
             # Check for LONG signal
@@ -143,7 +143,7 @@ class EMACrossSMACVD(BaseEntryStrategy):
                 }
 
             # Check for SHORT signal
-            elif isCrossBearish and cvd_ratio < self.short_threshold:
+            elif isCrossBearish and cvd_ratio < self.short_threshold and cvd_ratio != 0:
                 return {
                     "signal": True,
                     "direction": "SHORT",
