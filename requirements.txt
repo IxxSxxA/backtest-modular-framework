@@ -107,7 +107,7 @@ stack-data==0.6.3
 TA-Lib==0.6.8
 terminado==0.18.1
 tinycss2==1.4.0
-tornado==6.5.4
+tornado==6.5.5
 traitlets==5.14.3
 typing_extensions==4.15.0
 tzdata==2025.3
